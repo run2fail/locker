@@ -1,0 +1,19 @@
+db:
+  template: 
+    name: "ubuntu"
+    release: "precise"
+  ports:
+   - "8000:8000"
+  volumes:
+   - "/opt/data/db/var_log:/var/log"
+   - "/opt/data/db/etc:/etc"
+web:
+  clone: "ubuntu"
+  ports:
+   - "8001:8001"
+  volumes:
+   - "/opt/data/$name/var_log:/var/log"
+foo:
+  template: 
+    name: "ubuntu"
+    release: "precise"
