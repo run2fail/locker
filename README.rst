@@ -113,6 +113,7 @@ Help
 Limitations & Issues
 ====================
 
+- Must be run as root but there is no check for the user's uid at this time
 - There is no "up" command yet, you must manually execute the rm, create, start, ports commands
 - Does not catch malformed YAML files and statements
 - Only directories are supported as bind mounts
