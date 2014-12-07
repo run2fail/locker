@@ -31,26 +31,39 @@ Defining a Project
 An example project definition in YAML::
 
     db:
-      template:
+    template:
         name: "ubuntu"
         release: "precise"
-      ports:
-       - "8000:1234"
-      volumes:
-       - "/opt/data/locker_db/var_log:/var/log"
-       - "/opt/data/locker_db/etc:/etc"
+    ports:
+    - "8000:8000"
+    - "8000:8000/udp"
+    - "8001:8001/tcp"
+    volumes:
+    - "/opt/data/db/var_log:/var/log"
+    - "/opt/data/db/etc:/etc"
+    fqdn: 'db.example.net'
     web:
-      clone: "ubuntu"
-      ports:
-       - "8001:8001"
-      volumes:
-       - "/opt/data/$name/var_log:/var/log"
+    clone: "ubuntu"
+    ports:
+    - "192.168.2.123:8002:8002"
+    - "192.168.2.123:8003:8003/tcp"
+    - "192.168.2.123:8003:8003/udp"
+    volumes:
+    - "/opt/data/$name/var_log:/var/log"
     foo:
-      template:
+    template:
         name: "ubuntu"
         release: "precise"
 
-You can use some simple placeholders like $name or $project in your volume definitions.
+You can use some simple placeholders like $name or $project in your volume
+definitions.
+Different formats of port forwarding rules are supported. If the protocol is
+not specified, the default, i.e. tcp, will be used to configure netfilter rules.
+The fqdn attribute enables to set the container's hostname and full qualified
+domain name (fqdn). This is realized by a lxc hook script that is run after
+the mounting has been done. Several applications rely on the fqdn, e.g., the
+puppet agent of the puppet configuration system generates and selects TLS/SSL
+certificates based on the fqdn.
 
 Managing the Lifecycle
 ----------------------
@@ -155,6 +168,8 @@ Requirements
   - os, sys, time
   - `iptables <https://github.com/ldx/python-iptables>`_
   - `colorama <https://github.com/tartley/colorama>`_
+  - `prettytable <https://code.google.com/p/prettytable/>`_
+  - re
 
 - Linux Containers userspace tools and libraries
 

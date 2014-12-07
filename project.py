@@ -7,6 +7,8 @@ import time
 import iptc
 import colorama
 from colorama import Fore, Back, Style
+import prettytable
+import re
 
 class Project(object):
     '''
@@ -47,9 +49,10 @@ class Project(object):
             container = lxc.Container(pname)
             container.yml = yml[name]
             container.project = self
+            container.color = colors[num % len(colors)]
             container.logger = logging.getLogger(container.name)
             container.logger.propagate = False
-            formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + colors[num % len(colors)] + '[' + container.name + '] %(message)s' + Fore.RESET)
+            formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + container.color + '[' + container.name + '] %(message)s' + Fore.RESET)
             handler = logging.StreamHandler()
             handler.setFormatter(formatter)
             container.logger.addHandler(handler)
@@ -80,6 +83,8 @@ class Project(object):
         YAML configuration.
         Currently only bind mounts are supported and no syntax check is run!
 
+        TODO This should be a method of lxc.Container or sub-class
+
         :param container: The container object
         '''
         fstab_file = container.get_config_item('lxc.mount')
@@ -99,6 +104,92 @@ class Project(object):
                     fstab.write('%s %s none bind 0 0\n' % (remote, mountpt))
             fstab.write('\n')
 
+    @staticmethod
+    def set_fqdn(container):
+        '''
+        Set the FQDN inside the container
+
+        This works only when the container is running or when /etc is not
+        a bind-mount (changes to /etc will be invisible when the container is
+        started in the latter case).
+
+        TODO This should be a method of lxc.Container or sub-class and called before start
+        '''
+        def modify_etc(fqdn, rootfs):
+            # Could use fileinput module as alternative
+            with open('%s/etc/hosts' % rootfs, 'r') as fd:
+                lines = fd.readlines()
+            with open('%s/etc/hosts' % rootfs, 'w+') as fd:
+                for line in lines:
+                    if line.strip().startswith('127.0.1.1'):
+                        fd.write('127.0.1.1 %s %s\n' % (fqdn, fqdn.split('.')[0]))
+                    else:
+                        fd.write(line)
+            with open('%s/etc/hostname' % rootfs, 'w+') as fd:
+                fd.write('%s\n' % fqdn.split('.')[0])
+
+        def set_hostname():
+            # TODO Should this be replaced by subprocess?
+            os.system('hostname %s' % fqdn.split('.')[0])
+
+        if 'fqdn' not in container.yml:
+            container.logger.debug('No FQDN in configuration')
+            return
+        fqdn = container.yml['fqdn']
+        container.logger.debug('Setting FQDN via rootfs')
+        if container.running:
+            container.logger.warn('Setting FQDN in running container')
+        try:
+            rootfs = container.get_config_item('lxc.rootfs')
+        except KeyError:
+            container.logger.debug('rootfs is still empty, container defined = %s', container.defined)
+            return
+        assert len(rootfs)
+        modify_etc(fqdn, rootfs)
+        if container.running:
+            container.attach_wait(set_hostname)
+
+    @staticmethod
+    def set_fqdn_hook(container):
+        '''
+        Set FQDN hook script to set the FQDN
+
+        This works when the container and when /etc is a bind-mount as long as
+        / and /locker are not covered by another mount.
+
+        TODO This should be a method of lxc.Container or sub-class and called before start
+        '''
+        if 'fqdn' not in container.yml:
+            container.logger.debug('No FQDN in configuration')
+            return
+        fqdn = container.yml['fqdn']
+        hostname = fqdn.split('.')[0]
+        container.logger.debug('Setting FQDN hook script')
+        try:
+            rootfs = container.get_config_item('lxc.rootfs')
+        except KeyError:
+            container.logger.debug('rootfs is still empty, container defined = %s', container.defined)
+            return
+        assert len(rootfs)
+        # TODO Maybe we should mount /usr/share/locker/hooks from the host
+        # to /locker in the container? This would enable to have a common
+        # script for all containers.
+        hooks_dir = '%s/locker/hooks'  % (rootfs)
+        if not os.path.isdir(hooks_dir):
+            os.makedirs(hooks_dir)
+        hook = hooks_dir + '/mount'
+        with open(hook, 'w+') as fd:
+            # TODO Ugly
+            script = ''' \
+#!/bin/sh
+sed -i 's|^127\.0\.1\.1.*$|127.0.1.1   %s %s|g' %s/etc/hosts
+echo "%s" > "%s/etc/hostname"
+            ''' % (fqdn, hostname, rootfs, hostname, rootfs)
+            fd.write(script)
+        os.chmod(hook, 0o754)
+        container.set_config_item('lxc.hook.mount', hook)
+        container.save_config()
+
     def status(self, containers=None):
         '''
         Show status of all project specific containers
@@ -107,6 +198,11 @@ class Project(object):
         '''
 
         def get_netfiler_rules(container):
+            '''
+            Get port forwarding netfilter rules of the container
+
+            TODO This should be a method of lxc.Container or sub-class
+            '''
             nat_table = iptc.Table(iptc.Table.NAT)
             locker_nat_chain = iptc.Chain(nat_table, 'LOCKER')
             dnat_rules = list()
@@ -114,12 +210,12 @@ class Project(object):
                 container.logger.debug('Searching netfilter rules')
                 if not container.running:
                     return ''
-                for rule in [rul for rul in locker_nat_chain.rules if rul.protocol == 'tcp']:
+                for rule in [rul for rul in locker_nat_chain.rules if rul.protocol in ['tcp', 'udp']]:
                     for match in rule.matches:
                         if match.name == 'comment' and match.comment == container.name:
-                            dport = [m.dport for m in rule.matches if m.name == 'tcp'][0]
+                            dport = [m.dport for m in rule.matches if m.name in ['tcp', 'udp']][0]
                             to_ip, to_port = rule.target.to_destination.split(':')
-                            dnat_rules.append(((rule.dst, dport), (to_ip, to_port)))
+                            dnat_rules.append((rule.protocol, (rule.dst, dport), (to_ip, to_port)))
             except iptc.IPTCError:
                 container.logger.warn('An arror occured searching the netfiler rules')
             return dnat_rules
@@ -127,24 +223,22 @@ class Project(object):
         if containers == None:
             containers = self.containers
 
-        max_len_name = max(len(c.name) for c in containers)
-        max_len_state = max(len(c.state) for c in containers)
-        max_len_ips = max(len(str(c.get_ips())) for c in containers)
-        print(max_len_ips)
-
-        sys.stdout.write('%-5s %-*s %-*s %-*s %s\n' % ('Defined', max_len_name, 'Name', max_len_state, 'State', max_len_ips, 'IPs', 'Ports'))
-        sys.stdout.write('%s\n' % ''.join(['-' for x in range(len('Defined') + max_len_name + max_len_state + max_len_ips + 3)]))
-
+        table = prettytable.PrettyTable(['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports'])
+        table.align = 'l'
+        table.hrules = prettytable.HEADER
+        table.vrules = prettytable.NONE
         for container in containers:
             defined = container.defined
             name = container.name
             state = container.state
+            fqdn = '' if 'fqdn' not in container.yml else container.yml['fqdn']
             ips = '-'
             if container.running:
-                ips = container.get_ips()
+                ips = ','.join(container.get_ips())
             dnat_rules = get_netfiler_rules(container)
-            ports = ','.join(['%s:%s->%s' % (dip.split('/')[0], dport, to_port) for (dip, dport), (to_ip, to_port) in dnat_rules])
-            sys.stdout.write('%-7s %-*s %-*s %-*s %s\n' % (defined, max_len_name, name, max_len_state, state, max_len_ips, ips, ports))
+            ports = '\n'.join(['%s:%s->%s/%s' % (dip.split('/')[0], dport, to_port, proto) for proto, (dip, dport), (to_ip, to_port) in dnat_rules])
+            table.add_row(['%s%s%s' % (container.color, x, Fore.RESET) for x in [defined, name, fqdn, state, ips, ports]])
+        print(table)
 
     def start(self, containers=None):
         '''
@@ -174,6 +268,7 @@ class Project(object):
                     ok = False
                     continue
             Project.generate_fstab(container)
+            Project.set_fqdn_hook(container)
             container.logger.info('Starting container')
             ok &= container.start()
             if not container.running:
@@ -322,6 +417,8 @@ class Project(object):
                     # lxc is handling container objects
                     cloned_container.yml = self.yml[container.name.replace('%s_' % self.name, '')]
                     cloned_container.project = self
+                    cloned_container.color = container.color
+                    cloned_container.logger = container.logger
                     containers[pos] = cloned_container # maybe we need this list again after create!
                     Project.copy_mounted(cloned_container)
             else:
@@ -411,34 +508,77 @@ class Project(object):
 
         :returns: False on any error, else True
         '''
-        def add_dnat_rule():
-            for proto in ['tcp', 'udp']:
-                port_forwarding = iptc.Rule()
-                port_forwarding.protocol = proto
-                if host_ip:
-                    port_forwarding.dst = host_ip
-                port_forwarding.in_interface = '!lxbr0'
-                tcp_match = port_forwarding.create_match(proto)
-                tcp_match.dport = host_port
-                comment_match = port_forwarding.create_match('comment')
-                comment_match.comment = container.name
-                target = port_forwarding.create_target('DNAT')
-                target.to_destination = '%s:%s' % (container_ip, container_port)
-                locker_nat_chain.insert_rule(port_forwarding)
+        def add_dnat_rule(container, container_ip, port_conf, locker_nat_chain):
+            '''
+            Add rule to the LOCKER chain in the NAT table
 
-        def add_forward_rule():
-            for proto in ['tcp', 'udp']:
-                forward_rule = iptc.Rule()
-                forward_rule.protocol = proto
-                forward_rule.dst = container_ip
-                forward_rule.in_interface = '!lxcbr0'
-                forward_rule.out_interface = 'lxcbr0'
-                tcp_match = forward_rule.create_match(proto)
-                tcp_match.dport = container_port
-                comment_match = forward_rule.create_match('comment')
-                comment_match.comment = container.name
-                forward_rule.create_target('ACCEPT')
-                filter_forward.insert_rule(forward_rule)
+            TODO This should be a method of lxc.Container or sub-class
+            '''
+            port_forwarding = iptc.Rule()
+            port_forwarding.protocol = port_conf['proto']
+            if port_conf['host_ip']:
+                port_forwarding.dst = port_conf['host_ip']
+            port_forwarding.in_interface = '!lxbr0'
+            tcp_match = port_forwarding.create_match(port_conf['proto'])
+            tcp_match.dport = port_conf['host_port']
+            comment_match = port_forwarding.create_match('comment')
+            comment_match.comment = container.name
+            target = port_forwarding.create_target('DNAT')
+            target.to_destination = '%s:%s' % (container_ip, port_conf['container_port'])
+            locker_nat_chain.insert_rule(port_forwarding)
+
+        def add_forward_rule(container, container_ip, port_conf, filter_forward):
+            '''
+            Add rule to the FORWARD chain in the FILTER table
+
+            TODO This should be a method of lxc.Container or sub-class
+            '''
+            forward_rule = iptc.Rule()
+            forward_rule.protocol = port_conf['proto']
+            forward_rule.dst = container_ip
+            forward_rule.in_interface = '!lxcbr0'
+            forward_rule.out_interface = 'lxcbr0'
+            tcp_match = forward_rule.create_match(port_conf['proto'])
+            tcp_match.dport = port_conf['container_port']
+            comment_match = forward_rule.create_match('comment')
+            comment_match.comment = container.name
+            forward_rule.create_target('ACCEPT')
+            filter_forward.insert_rule(forward_rule)
+
+        def check_if_container_has_rules(container, locker_nat_chain, filter_forward):
+            '''
+            Check if there are any netfilter rules for this container
+
+            TODO This should be a method of lxc.Container or sub-class
+            TODO Use more specific Exception
+            '''
+            container.logger.debug('Checking if container has already rules')
+            for rule in locker_nat_chain.rules:
+                for match in rule.matches:
+                    if match.name == 'comment' and match.comment == container.name:
+                        container.logger.info('Found rule(-s) in LOCKER chain: remove with command \"rmports\"')
+                        raise Exception('Existing rules found') # TODO use more specific exception
+            for rule in filter_forward.rules:
+                for match in rule.matches:
+                    if match.name == 'comment' and match.comment == container.name:
+                        container.logger.info('Found rule(-s) in FORWARD chain: remove with command \"rmports\"')
+                        raise Exception('Existing rules found') # TODO use more specific exception
+
+        def parse_port_conf(container, fwport):
+            '''
+            Split port forward directive in parts
+
+            TODO This should be a method of lxc.Container or sub-class
+            TODO Use more specific Exception
+            '''
+            regex = re.compile(r'^(?:(?P<host_ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):)?(?P<host_port>\d{1,5}):(?P<container_port>\d{1,5})(?:/(?:(?P<proto_udp>udp)|(?P<proto_tcp>tcp)))?$')
+            match = regex.match(fwport)
+            if not match:
+                container.logger.error('Invalid port forwarding directive: %s', fwport)
+                raise Exception('Invalid port forwarding directive: %s' % fwport)
+            mdict = match.groupdict()
+            mdict['proto'] = mdict['proto_udp'] or 'tcp'
+            return mdict
 
         if containers == None:
             containers = self.containers
@@ -457,47 +597,31 @@ class Project(object):
             if not container.running:
                 container.logger.info('Container is not running, skipping adding ports rules')
                 continue
-
             container.logger.info('Adding port forwarding rules')
 
             try:
-                container.logger.debug('Checking if container has already rules')
-                for rule in locker_nat_chain.rules:
-                    for match in rule.matches:
-                        if match.name == 'comment' and match.comment == container.name:
-                            container.logger.info('Found rule(-s) in LOCKER chain: remove with command \"rmports\"')
-                            raise Exception('Existing rules found') # TODO use more specific exception
-                for rule in filter_forward.rules:
-                    for match in rule.matches:
-                        if match.name == 'comment' and match.comment == container.name:
-                            container.logger.info('Found rule(-s) in FORWARD chain: remove with command \"rmports\"')
-                            raise Exception('Existing rules found') # TODO use more specific exception
+                check_if_container_has_rules(container, locker_nat_chain, filter_forward)
             except Exception:
                 continue
 
             for fwport in container.yml['ports']:
+                try:
+                    port_conf = parse_port_conf(container, fwport)
+                except Exception:
+                    continue
+
                 ips = container.get_ips()
                 while len(ips) == 0 and container.running:
+                    # TODO Should implement a timeout here
                     container.logger.debug('Waiting to aquire an IP address')
                     time.sleep(1)
                     ips = container.get_ips()
-                parts = [s.strip() for s in fwport.split(':')]
                 for container_ip in ips:
                     if container_ip.find(':') >= 0:
                         container.logger.warn('Found IPv6 address %s - not yet supported', container_ip)
                         continue
-
-                    host_ip = None
-                    if len(parts) == 3:
-                        host_ip, host_port, container_port = parts
-                    elif len(parts) == 2:
-                        host_port, container_port = parts
-                    else:
-                        container.logger.warn('Malformed ports directive: %s', container.yml['ports'])
-                        continue
-
-                    add_dnat_rule()
-                    add_forward_rule()
+                    add_dnat_rule(container, container_ip, port_conf, locker_nat_chain)
+                    add_forward_rule(container, container_ip, port_conf, filter_forward)
         return ok
 
     def rmports(self, containers=None):
