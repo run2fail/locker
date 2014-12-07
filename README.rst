@@ -18,6 +18,7 @@ Locker currently supports the following features:
 - Create an fstab file to enable bind mounted directories from the host into the container(-s)
 - Optionally, bind-mounted folders may be moved from the container to the host after container creation, so that you do not mount empty folders within your container (needs more testing)
 - Add or remove port forwarding netfilter rules (prototypical, needs testing)
+- Multi-colored output
 
 Usage
 ===============
@@ -48,7 +49,7 @@ An example project definition in YAML::
       template:
         name: "ubuntu"
         release: "precise"
-        
+
 You can use some simple placeholders like $name or $project in your volume definitions.
 
 Managing the Lifecycle
@@ -153,6 +154,7 @@ Requirements
   - shutil
   - os, sys, time
   - `iptables <https://github.com/ldx/python-iptables>`_
+  - `colorama <https://github.com/tartley/colorama>`_
 
 - Linux Containers userspace tools and libraries
 
@@ -167,7 +169,6 @@ To-Dos / Feature Wish List
 - Support setting parameters in the container's config (e.g. /var/lib/lxc/container/contig) via the YAML file
 - Evaluate the order in which to create new cloned containers to handle dependency problems (containers are currently created in alphabetical order)
 - Support execution of commands inside the container after creation, e.g., to install the puppet agent
-- Colored output
 
 Words of Warning
 ================

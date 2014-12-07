@@ -52,7 +52,7 @@ def main():
     '''
     The main function
     '''
-    logging.basicConfig(format='%(asctime)s, %(levelname)s, %(message)s', level=logging.INFO)
+    logging.basicConfig(format='%(asctime)s, %(levelname)8s: %(message)s', level=logging.INFO)
     args = parse_args()
     if args['verbose']:
         logging.root.setLevel(logging.DEBUG)

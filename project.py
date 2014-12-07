@@ -5,6 +5,8 @@ import os
 import shutil
 import time
 import iptc
+import colorama
+from colorama import Fore, Back, Style
 
 class Project(object):
     '''
@@ -32,7 +34,9 @@ class Project(object):
         :returns:   List of container objects
         '''
         containers = list()
-        for name in sorted(yml.keys()):
+        colors = [Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
+
+        for num, name in enumerate(sorted(yml.keys())):
             pname = '%s_%s' % (self.name, name)
             if len(self.args['containers']) and pname not in self.args['containers']:
                 logging.debug('%s was not selected', pname)
@@ -43,6 +47,12 @@ class Project(object):
             container = lxc.Container(pname)
             container.yml = yml[name]
             container.project = self
+            container.logger = logging.getLogger(container.name)
+            container.logger.propagate = False
+            formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + colors[num % len(colors)] + '%(message)s' + Fore.RESET)
+            handler = logging.StreamHandler()
+            handler.setFormatter(formatter)
+            container.logger.addHandler(handler)
             containers.append(container)
         logging.debug('Containers:\n\t%s', containers)
         return containers
@@ -75,10 +85,10 @@ class Project(object):
         fstab_file = container.get_config_item('lxc.mount')
         if not fstab_file:
             # TODO Why is lxc.mount sometimes empty?!?
-            logging.debug('Empty fstab config item for \"%s\"', container.name)
+            container.logger.debug('Empty fstab config item for \"%s\"', container.name)
             fstab_file = '%s/%s/fstab' % (container.get_config_path(), container.name)
         assert(len(fstab_file))
-        logging.debug('Generating fstab of \"%s\": %s', container.name, fstab_file)
+        container.logger.debug('Generating fstab of \"%s\": %s', container.name, fstab_file)
         with open(fstab_file, 'w+') as fstab:
             if 'volumes' in container.yml:
                 for volume in container.yml['volumes']:
@@ -127,24 +137,24 @@ class Project(object):
         ok = True
         for container in containers:
             if not container.defined:
-                logging.critical('Container %s is not yet defined', container.name)
+                container.logger.critical('Container %s is not yet defined', container.name)
                 ok = False
                 continue
 
             if container.running:
-                logging.warn('Container %s is already running', container.name)
+                container.logger.warn('Container %s is already running', container.name)
                 if not self.args['restart']:
                     continue
-                logging.info('Restarting container %s', container.name)
+                container.logger.info('Restarting container %s', container.name)
                 if not container.stop():
-                    logging.critical('Was not able to stop container %s - still running!', container.name)
+                    container.logger.critical('Was not able to stop container %s - still running!', container.name)
                     ok = False
                     continue
             Project.generate_fstab(container)
-            logging.info('Starting container %s', container.name)
+            container.logger.info('Starting container %s', container.name)
             ok &= container.start()
             if not container.running:
-                logging.critical('Could not start container %s', container.name)
+                container.logger.critical('Could not start container %s', container.name)
         return ok
 
     def stop(self, containers=None):
@@ -161,14 +171,14 @@ class Project(object):
         ok = True
         for container in containers:
             if not container.defined:
-                logging.critical('Container %s is not yet defined', container.name)
+                container.logger.critical('Container %s is not yet defined', container.name)
                 ok = False
                 continue
 
             if not container.running:
-                logging.warn('Container %s is already stopped', container.name)
+                container.logger.warn('Container %s is already stopped', container.name)
                 continue
-            logging.info('Stopping container %s', container.name)
+            container.logger.info('Stopping container %s', container.name)
             ok &= container.stop()
         return ok
 
@@ -197,10 +207,10 @@ class Project(object):
             return string
 
         if container.project.args['dont_copy_on_create']:
-            logging.debug('Skipping copying of mounts of \"%s\" from inside container to outside', container.name)
+            container.logger.debug('Skipping copying of mounts of \"%s\" from inside container to outside', container.name)
             return
         if 'volumes' not in container.yml:
-            logging.debug('No volumes defined for \"%s\"', container.name)
+            container.logger.debug('No volumes defined for \"%s\"', container.name)
             return
 
         rootfs = container.get_config_item('lxc.rootfs')
@@ -208,37 +218,37 @@ class Project(object):
         for volume in container.yml['volumes']:
             outside, inside = [remove_trailing_slash(Project.expand_vars(s.strip(), container)) for s in volume.split(':')]
             if os.path.exists(outside):
-                logging.warn('Path %s exists on host, skipping', outside)
+                container.logger.warn('Path %s exists on host, skipping', outside)
                 continue
             if os.path.isfile(rootfs+inside):
-                logging.warn('%s is a file (not supported yet), skipping', rootfs+inside)
+                container.logger.warn('%s is a file (not supported yet), skipping', rootfs+inside)
                 continue
 
             outside_parent = os.path.dirname(outside)
             if os.path.exists(outside_parent):
                 input_var = input("Parent folder %s already exists. Continue to move data to %s? [y/N]: " % (container.name, outside))
                 if input_var not in ['y', 'Y']:
-                    logging.info('Skipping volume %s', volume)
+                    container.logger.info('Skipping volume %s', volume)
                     continue
             else:
                 try:
                     os.makedirs(outside_parent)
-                    logging.debug('Created directory %s', outside_parent)
+                    container.logger.debug('Created directory %s', outside_parent)
                 except OSError:
-                    logging.warn('Could not create parent directory %s. Data not moved from container to host!', outside_parent)
+                    container.logger.warn('Could not create parent directory %s. Data not moved from container to host!', outside_parent)
                     continue
 
             if os.path.exists(inside):
                 # Move from container to host should preseve owner and group, recreate dir afterwards in container
-                logging.debug('Move %s to %s', rootfs+inside, outside)
+                container.logger.debug('Move %s to %s', rootfs+inside, outside)
                 shutil.move(rootfs+inside, outside)
                 os.mkdir(rootfs+inside)
             else:
                 try:
                     os.makedirs(outside)
-                    logging.warn('%s did not exist within the container, created empty directory on host', outside)
+                    container.logger.warn('%s did not exist within the container, created empty directory on host', outside)
                 except OSError:
-                    logging.warn('Could not create %s on host (%s does not exist inside the container)', outside, inside)
+                    container.logger.warn('Could not create %s on host (%s does not exist inside the container)', outside, inside)
                     continue
 
     def create(self, containers=None):
@@ -255,34 +265,34 @@ class Project(object):
         ok = True
         for pos, container in enumerate(containers):
             if container.defined:
-                logging.warning('Container %s already defined', container.name)
+                container.logger.warning('Container %s already defined', container.name)
                 ok = False
                 continue
 
             if 'template' in container.yml and 'clone' in container.yml:
-                logging.error('\"template\" and \"clone\" may not be used in the same configuration of \"%s\"', container.name)
+                container.logger.error('\"template\" and \"clone\" may not be used in the same configuration of \"%s\"', container.name)
                 ok = False
                 continue
 
             if 'template' in container.yml:
-                logging.info('Creating \"%s\" from template \"%s\"', container.name, container.yml['template']['name'])
+                container.logger.info('Creating \"%s\" from template \"%s\"', container.name, container.yml['template']['name'])
                 container.create(container.yml['template']['name'], lxc.LXC_CREATE_QUIET, args=container.yml['template'])
                 if not container.defined:
-                    logging.info('Creation of \"%s\" from template \"%s\" did not succeed', container.name, container.yml['template']['name'])
+                    container.logger.info('Creation of \"%s\" from template \"%s\" did not succeed', container.name, container.yml['template']['name'])
                     ok = False
                 else:
                     Project.copy_mounted(container)
             elif 'clone' in container.yml:
                 clone = container.yml['clone']
                 if clone not in lxc.list_containers():
-                    logging.error('Cannot clone, container \"%s\" does not exist or is not accessible', clone)
+                    container.logger.error('Cannot clone, container \"%s\" does not exist or is not accessible', clone)
                     ok = False
                     continue
                 origin = lxc.Container(clone)
-                logging.info('Cloning \"%s\" from \"%s\"', container.name, origin.name)
+                container.logger.info('Cloning \"%s\" from \"%s\"', container.name, origin.name)
                 cloned_container = origin.clone(container.name)
                 if not container.defined:
-                    logging.info('Cloning of \"%s\" from \"%s\" did not succeed', container.name, origin.name)
+                    container.logger.info('Cloning of \"%s\" from \"%s\" did not succeed', container.name, origin.name)
                     ok = False
                 else:
                     # TODO Modifying lists in a loop is foobar but necessary due to the way
@@ -292,7 +302,7 @@ class Project(object):
                     containers[pos] = cloned_container # maybe we need this list again after create!
                     Project.copy_mounted(cloned_container)
             else:
-                logging.error('Neither \"template\" nor \"clone\" was specified in the configuration of \"%s\"', container.name)
+                container.logger.error('Neither \"template\" nor \"clone\" was specified in the configuration of \"%s\"', container.name)
                 ok = False
         return ok
 
@@ -310,19 +320,19 @@ class Project(object):
         ok = True
         for container in containers:
             if not container.defined:
-                logging.warn('Container %s does not exist', container.name)
+                container.logger.warn('Container %s does not exist', container.name)
                 ok = False
                 continue
             if not self.args['delete_dont_ask']:
                 input_var = input("Delete %s? [y/N]: " % (container.name))
                 if input_var not in ['y', 'Y']:
-                    logging.info('Skipping deletion of container %s', container.name)
+                    container.logger.info('Skipping deletion of container %s', container.name)
                     continue
             if not self.stop([container]):
                 continue
             if not container.destroy():
                 ok = False
-                logging.warn('Container %s was not deleted', container.name)
+                container.logger.warn('Container %s was not deleted', container.name)
         return ok
 
     @staticmethod
@@ -419,25 +429,25 @@ class Project(object):
         ok = True
         for container in containers:
             if not 'ports' in container.yml:
-                logging.info('No port forwarding rules for %s', container.name)
+                container.logger.info('No port forwarding rules for %s', container.name)
                 continue
             if not container.running:
-                logging.info('%s is not running, skipping adding ports rules', container.name)
+                container.logger.info('%s is not running, skipping adding ports rules', container.name)
                 continue
 
-            logging.info('Adding port forwarding rules for %s', container.name)
+            container.logger.info('Adding port forwarding rules for %s', container.name)
 
             try:
-                logging.debug('Checking if container has already rules')
+                container.logger.debug('Checking if container has already rules')
                 for rule in locker_nat_chain.rules:
                     for match in rule.matches:
                         if match.name == 'comment' and match.comment == container.name:
-                            logging.info('Found rule(-s) for %s in LOCKER chain: remove with command \"rmports\"', container.name)
+                            container.logger.info('Found rule(-s) for %s in LOCKER chain: remove with command \"rmports\"', container.name)
                             raise Exception('Existing rules found') # TODO use more specific exception
                 for rule in filter_forward.rules:
                     for match in rule.matches:
                         if match.name == 'comment' and match.comment == container.name:
-                            logging.info('Found rule(-s) for %s in FORWARD chain: remove with command \"rmports\"', container.name)
+                            container.logger.info('Found rule(-s) for %s in FORWARD chain: remove with command \"rmports\"', container.name)
                             raise Exception('Existing rules found') # TODO use more specific exception
             except Exception:
                 continue
@@ -445,13 +455,13 @@ class Project(object):
             for fwport in container.yml['ports']:
                 ips = container.get_ips()
                 while len(ips) == 0 and container.running:
-                    logging.debug('Waiting for \"%s\" to aquire an IP address', container.name)
+                    container.logger.debug('Waiting for \"%s\" to aquire an IP address', container.name)
                     time.sleep(1)
                     ips = container.get_ips()
                 parts = [s.strip() for s in fwport.split(':')]
                 for container_ip in ips:
                     if container_ip.find(':') >= 0:
-                        logging.warn('Found IPv6 address %s for \"%s\", not yet supported', container_ip, container.name)
+                        container.logger.warn('Found IPv6 address %s for \"%s\", not yet supported', container_ip, container.name)
                         continue
 
                     host_ip = ''
@@ -460,7 +470,7 @@ class Project(object):
                     elif len(parts) == 2:
                         host_port, container_port = parts
                     else:
-                        logging.warn('Malformed ports directive: %s', container.yml['ports'])
+                        container.logger.warn('Malformed ports directive: %s', container.yml['ports'])
                         continue
 
                     add_dnat_rule()
@@ -490,16 +500,16 @@ class Project(object):
             logging.info('Removing netfilter rules')
             for container in containers:
                 if container.running:
-                    logging.warn('Container %s is still running, services will not be available anymore', container.name)
+                    container.logger.warn('Container %s is still running, services will not be available anymore', container.name)
                 for rule in locker_nat_chain.rules:
                     for match in rule.matches:
                         if match.name == 'comment' and match.comment == container.name:
-                            logging.info('Removing DNAT %s rule of \"%s\"', rule.protocol, container.name)
+                            container.logger.info('Removing DNAT %s rule of \"%s\"', rule.protocol, container.name)
                             locker_nat_chain.delete_rule(rule)
                 for rule in filter_forward.rules:
                     for match in rule.matches:
                         if match.name == 'comment' and match.comment == container.name:
-                            logging.info('Removing FORWARD %s rule of \"%s\"', rule.protocol, container.name)
+                            container.logger.info('Removing FORWARD %s rule of \"%s\"', rule.protocol, container.name)
                             filter_forward.delete_rule(rule)
         except iptc.IPTCError:
             logging.warn('An arror occured during the deletion of rules for \"%s\", check for relics', container.name)
