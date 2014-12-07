@@ -18,7 +18,6 @@ Features:
 __author__ = "BB"
 __copyright__ = "Copyright 2014"
 __license__ = "GPLv3 or later"
-__version__ = "0.1"
 __status__ = "Prototype"
 
 import os
@@ -27,7 +26,8 @@ import yaml
 import argparse
 import lxc
 import logging
-from project import Project
+from locker import Project
+from locker._version import __version__
 
 def parse_args():
     '''
@@ -43,8 +43,10 @@ def parse_args():
     parser.add_argument('--file', '-f', default='./locker.yml', help='Specify an alternate locker file (default: locker.yml)')
     parser.add_argument('--project', '-p', default=os.path.basename(os.getcwd()), help='Specify an alternate project name (default: directory name)')
     parser.add_argument('--restart', '-r', nargs='?', type=bool, const=True, default=False, help='Restart already running containers when using \"start\" command')
-    parser.add_argument('command', nargs='?', choices=['start', 'stop', 'rm', 'create', 'status', 'ports', 'rmports'], default='start', help='Commmand to run')
-    parser.add_argument('containers', nargs='*', default=None, help='Selection of containers (default: all containers)')
+    parser.add_argument('--no-ports', '-n', nargs='?', type=bool, const=True, default=False, help='Do not add/remove netfilter rules (used with command start/stop)')
+    parser.add_argument('--no-links', '-m', nargs='?', type=bool, const=True, default=False, help='Do not add/remove links (used with command start/stop)')
+    parser.add_argument('command', nargs='?', choices=['start', 'stop', 'rm', 'create', 'status', 'ports', 'rmports', 'links', 'rmlinks'], default='start', help='Commmand to run')
+    parser.add_argument('containers', nargs='*', default=None, help='Space separated list of containers (default: all containers)')
     args_dict = vars(parser.parse_args())
     return args_dict
 
@@ -56,15 +58,18 @@ def main():
     args = parse_args()
     if args['verbose']:
         logging.root.setLevel(logging.DEBUG)
-    logging.debug('Parsed arguments:\n\t%s', args)
+    logging.debug('Parsed arguments: %s', args)
 
     if args['version']:
         sys.stdout.write('%s\n' % __version__)
         sys.exit()
 
+    if not os.path.isfile(args['file']):
+        logging.critical('Configuration file \"%s\" does not exist or cannot be accessed', args['file'])
+        sys.exit(1)
     with open('%s' % (args['file'])) as yaml_file:
         yml = yaml.load(yaml_file)
-    logging.debug('Parsed YAML Configuration:\n\t%s', yml)
+    logging.debug('Parsed YAML Configuration: %s', yml)
 
     if not os.geteuid() == 0:
         logging.fatal("Locker must be run as root to modify netfilter rules and as unprivileged containers are not yet supported.")
@@ -85,6 +90,10 @@ def main():
         pro.ports()
     elif args['command'] == 'rmports':
         pro.rmports()
+    elif args['command'] == 'links':
+        pro.links()
+    elif args['command'] == 'rmlinks':
+        pro.rmlinks()
 
 if __name__ == '__main__':
     main()
