@@ -5,19 +5,19 @@ About Locker
 
 Locker is my take on `Docker <http://www.docker.com>`_  + `fig <http://fig.sh>`_ applied for `Linux containers (LXC) <https://linuxcontainers.org/>`_. Locker wraps the lxc utilities like fig does for Docker.
 
-Locker is not yet a production ready solution but a prototype implementation. Its feature set is mainly focused on my personal application domain. Most notably, I required a solution to set up groups of Ubuntu containers with bind-mounted folders to store critical data and to make services from the containers available to the outside world by port forwarding. I needed complete base installations in the containers to support security auto-updates, cron jobs, ssh access, etc. which ruled out pure application containers. Locker is a simple application that eases these tasks.
+Locker is not yet a production ready solution but a prototype implementation. Its feature set is mainly focused on my personal application domain. Most notably, I required a solution to set up groups of Ubuntu containers with bind-mounted folders to store critical data and to make services from the containers available to the outside world by port forwarding. I needed a complete base installations in the containers to support security auto-updates, cron jobs, ssh access, etc. which ruled out pure application containers. Locker is a simple Python application that simplifies these tasks.
 
 Please consider that Linux containers do not ship with an installed application like Docker containers. Linux containers are usually created based on template files, i.e., you get a base installation of your user space of choice. You either must write your own enhanced LXC template, install your application manually, or deploy your application by using a configuration management system like `puppet <http://puppetlabs.com/puppet/what-is-puppet>`_, `chef <https://www.chef.io/chef/>`_, ...
 
 Locker currently supports the following features:
 
-- Define containers in a YAML file similar to fig's syntax
+- Define groups of containers in a YAML file similar to fig's syntax
 - Create, start, stop, and remove groups or selections of containers
 - Show the status of containers in your project
 - Create containers as clones or based on LXC templates
-- Create an fstab file for bind mounts into the container
-- Optionally move bind-mounted folders from container after container creation to host, so that you do not mount empty folders within your container (need testing)
-- Add or remove port forwarding netfilter rules (prototypical)
+- Create an fstab file to enable bind mounted directories from the host into the container(-s)
+- Optionally, bind-mounted folders may be moved from the container to the host after container creation, so that you do not mount empty folders within your container (needs more testing)
+- Add or remove port forwarding netfilter rules (prototypical, needs testing)
 
 Usage
 ===============
@@ -48,11 +48,13 @@ An example project definition in YAML::
       template:
         name: "ubuntu"
         release: "precise"
+        
+You can use some simple placeholders like $name or $project in your volume definitions.
 
 Managing the Lifecycle
 ----------------------
 
-Creating, starting, stopping, and removing containers (output some omitted)::
+Creating, starting, stopping, removing containers and netfilter modifications (some output omitted)::
 
     $ ./locker.py create
     [...]
@@ -162,7 +164,7 @@ To-Dos / Feature Wish List
 - Support IPv6 addresses and netfilter rules
 - Add a hostname parameter and support the configuration of the FQDN
 - Support different container paths
-- Support setting parameters in the container's config config (e.g. /var/lib/lxc/container/contig) via the YAML configuration
+- Support setting parameters in the container's config (e.g. /var/lib/lxc/container/contig) via the YAML file
 - Evaluate the order in which to create new cloned containers to handle dependency problems (containers are currently created in alphabetical order)
 - Support execution of commands inside the container after creation, e.g., to install the puppet agent
 - Colored output
