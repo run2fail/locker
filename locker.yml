@@ -1,5 +1,5 @@
 db:
-  template: 
+  template:
     name: "ubuntu"
     release: "precise"
   ports:
@@ -14,6 +14,6 @@ web:
   volumes:
    - "/opt/data/$name/var_log:/var/log"
 foo:
-  template: 
+  template:
     name: "ubuntu"
     release: "precise"

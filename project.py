@@ -21,6 +21,7 @@ class Project(object):
         self.args = args
         self.name = args['project']
         self.containers = self.get_containers(yml)
+        self.yml = yml
 
     def get_containers(self, yml):
         '''
@@ -72,8 +73,13 @@ class Project(object):
         :param container: The container object
         '''
         fstab_file = container.get_config_item('lxc.mount')
+        if not fstab_file:
+            # TODO Why is lxc.mount sometimes empty?!?
+            logging.debug('Empty fstab config item for \"%s\"', container.name)
+            fstab_file = '%s/%s/fstab' % (container.get_config_path(), container.name)
+        assert(len(fstab_file))
         logging.debug('Generating fstab of \"%s\": %s', container.name, fstab_file)
-        with open(fstab_file, 'w') as fstab:
+        with open(fstab_file, 'w+') as fstab:
             if 'volumes' in container.yml:
                 for volume in container.yml['volumes']:
                     remote, mountpt = [s.strip() for s in volume.split(':')]
@@ -174,8 +180,22 @@ class Project(object):
         This method optionally enables to copy data from inside the container
         to the host so that non-empty bind mounts can be set up.
 
+        Actually, this method moves the data from the container to the host to
+        preserve the owner, group, and mode configuration.
+        TODO Is there no way to "cp -ar" with shutil or another module?
+
         :param container: The container to handle
         '''
+
+        def remove_trailing_slash(string):
+            '''
+            Dirty work-around that should be removed in the future, especially
+            when files should be supported as bind-mounts
+            '''
+            if string.endswith('/'):
+                return string[:-1]
+            return string
+
         if container.project.args['dont_copy_on_create']:
             logging.debug('Skipping copying of mounts of \"%s\" from inside container to outside', container.name)
             return
@@ -184,10 +204,11 @@ class Project(object):
             return
 
         rootfs = container.get_config_item('lxc.rootfs')
+        assert(len(rootfs))
         for volume in container.yml['volumes']:
-            outside, inside = [s.strip() for s in volume.split(':')]
+            outside, inside = [remove_trailing_slash(Project.expand_vars(s.strip(), container)) for s in volume.split(':')]
             if os.path.exists(outside):
-                logging.warn('Path %s exists, skipping', outside)
+                logging.warn('Path %s exists on host, skipping', outside)
                 continue
             if os.path.isfile(rootfs+inside):
                 logging.warn('%s is a file (not supported yet), skipping', rootfs+inside)
@@ -195,7 +216,7 @@ class Project(object):
 
             outside_parent = os.path.dirname(outside)
             if os.path.exists(outside_parent):
-                input_var = input("Parent folder %s already exists. Continue to move data? [y/N]: " % (container.name))
+                input_var = input("Parent folder %s already exists. Continue to move data to %s? [y/N]: " % (container.name, outside))
                 if input_var not in ['y', 'Y']:
                     logging.info('Skipping volume %s', volume)
                     continue
@@ -232,7 +253,7 @@ class Project(object):
             containers = self.containers
 
         ok = True
-        for container in containers:
+        for pos, container in enumerate(containers):
             if container.defined:
                 logging.warning('Container %s already defined', container.name)
                 ok = False
@@ -259,12 +280,17 @@ class Project(object):
                     continue
                 origin = lxc.Container(clone)
                 logging.info('Cloning \"%s\" from \"%s\"', container.name, origin.name)
-                origin.clone(container.name)
+                cloned_container = origin.clone(container.name)
                 if not container.defined:
                     logging.info('Cloning of \"%s\" from \"%s\" did not succeed', container.name, origin.name)
                     ok = False
                 else:
-                    Project.copy_mounted(container)
+                    # TODO Modifying lists in a loop is foobar but necessary due to the way
+                    # lxc is handling container objects
+                    cloned_container.yml = self.yml[container.name.replace('%s_' % self.name, '')]
+                    cloned_container.project = self
+                    containers[pos] = cloned_container # maybe we need this list again after create!
+                    Project.copy_mounted(cloned_container)
             else:
                 logging.error('Neither \"template\" nor \"clone\" was specified in the configuration of \"%s\"', container.name)
                 ok = False
