@@ -4,6 +4,7 @@ import sys
 import os
 import shutil
 import time
+import iptc
 
 class Project(object):
     '''
@@ -244,7 +245,7 @@ class Project(object):
 
             if 'template' in container.yml:
                 logging.info('Creating \"%s\" from template \"%s\"', container.name, container.yml['template']['name'])
-                container.create(container.yml['template']['name'], args=container.yml['template'])
+                container.create(container.yml['template']['name'], lxc.LXC_CREATE_QUIET, args=container.yml['template'])
                 if not container.defined:
                     logging.info('Creation of \"%s\" from template \"%s\" did not succeed', container.name, container.yml['template']['name'])
                     ok = False
@@ -298,6 +299,51 @@ class Project(object):
                 logging.warn('Container %s was not deleted', container.name)
         return ok
 
+    @staticmethod
+    def prepare_locker_table():
+        '''
+        Add container unspecific netfilter modifications
+
+        This method does the following
+
+          - Adds LOCKER chain to the NAT table
+          - Creates a rule from the PREROUTING chain in the NAT table to the
+            LOCKER chain
+          - Ensures that the jump rule is only added once (the rule's comments
+            are checked for a match)
+
+        :throws: iptc.IPTCError if the LOCKER chain cannot be retrieved or
+                 created
+
+        :returns: LOCKER chain in NAT table, type = iptc.ip4tc.Chain
+        '''
+        nat_table = iptc.Table(iptc.Table.NAT)
+        if 'LOCKER' not in [c.name for c in nat_table.chains]:
+            try:
+                logging.debug('Adding LOCKER chain to NAT table')
+                locker_nat_chain = nat_table.create_chain('LOCKER')
+            except iptc.IPTCError:
+                logging.error('Was not able to create LOCKER chain in NAT table, cannot add rules')
+                raise
+        else:
+            locker_nat_chain = iptc.Chain(nat_table, 'LOCKER')
+
+        nat_prerouting_chain = iptc.Chain(nat_table, 'PREROUTING')
+        for rule in nat_prerouting_chain.rules:
+            for match in rule.matches:
+                if match.name == 'comment' and match.comment == 'LOCKER':
+                    logging.debug('Found rule to jump from PREROUTING chain to LOCKER chain')
+                    return locker_nat_chain
+
+        jump_to_locker_rule = iptc.Rule()
+        jump_to_locker_rule.create_target("LOCKER")
+        addr_type_match = jump_to_locker_rule.create_match("addrtype")
+        addr_type_match.dst_type = "LOCAL"
+        comment_match = jump_to_locker_rule.create_match("comment")
+        comment_match.comment = 'LOCKER'
+        nat_prerouting_chain.insert_rule(jump_to_locker_rule)
+        return locker_nat_chain
+
     def ports(self, containers=None):
         '''
         Add firewall rules to enable port forwarding
@@ -306,21 +352,70 @@ class Project(object):
 
         :returns: False on any error, else True
         '''
+        def add_dnat_rule():
+            for proto in ['tcp', 'udp']:
+                port_forwarding = iptc.Rule()
+                port_forwarding.protocol = proto
+                if host_ip:
+                    port_forwarding.dst = host_ip
+                port_forwarding.in_interface = '!lxbr0'
+                tcp_match = port_forwarding.create_match(proto)
+                tcp_match.dport = host_port
+                comment_match = port_forwarding.create_match('comment')
+                comment_match.comment = container.name
+                target = port_forwarding.create_target('DNAT')
+                target.to_destination = '%s:%s' % (container_ip, container_port)
+                locker_nat_chain.insert_rule(port_forwarding)
+
+        def add_forward_rule():
+            for proto in ['tcp', 'udp']:
+                forward_rule = iptc.Rule()
+                forward_rule.protocol = proto
+                forward_rule.dst = container_ip
+                forward_rule.in_interface = '!lxcbr0'
+                forward_rule.out_interface = 'lxcbr0'
+                tcp_match = forward_rule.create_match(proto)
+                tcp_match.dport = container_port
+                comment_match = forward_rule.create_match('comment')
+                comment_match.comment = container.name
+                target = forward_rule.create_target('ACCEPT')
+                filter_forward.insert_rule(forward_rule)
+
         if containers == None:
             containers = self.containers
 
-        os.system('iptables -t nat -N LOCKER -m comment --comment \"%s\"' % self.name)
-        os.system('iptables -t nat -I PREROUTING -m addrtype --dst-type LOCAL -j LOCKER -m comment --comment \"%s\"' % self.name)
+        try:
+            locker_nat_chain = Project.prepare_locker_table()
+        except iptc.IPTCError:
+            return False
+        filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
+
         ok = True
         for container in containers:
             if not 'ports' in container.yml:
                 logging.info('No port forwarding rules for %s', container.name)
                 continue
             if not container.running:
-                logging.info('%s is not running, skipping ports rules', container.name)
+                logging.info('%s is not running, skipping adding ports rules', container.name)
                 continue
 
             logging.info('Adding port forwarding rules for %s', container.name)
+
+            try:
+                logging.debug('Checking if container has already rules')
+                for rule in locker_nat_chain.rules:
+                    for match in rule.matches:
+                        if match.name == 'comment' and match.comment == container.name:
+                            logging.info('Found rule(-s) for %s in LOCKER chain: remove with command \"rmports\"', container.name)
+                            raise Exception('Existing rules found') # TODO use more specific exception
+                for rule in filter_forward.rules:
+                    for match in rule.matches:
+                        if match.name == 'comment' and match.comment == container.name:
+                            logging.info('Found rule(-s) for %s in FORWARD chain: remove with command \"rmports\"', container.name)
+                            raise Exception('Existing rules found') # TODO use more specific exception
+            except Exception:
+                continue
+
             for fwport in container.yml['ports']:
                 ips = container.get_ips()
                 while len(ips) == 0 and container.running:
@@ -329,18 +424,21 @@ class Project(object):
                     ips = container.get_ips()
                 parts = [s.strip() for s in fwport.split(':')]
                 for container_ip in ips:
+                    if container_ip.find(':') >= 0:
+                        logging.warn('Found IPv6 address %s for \"%s\", not yet supported', container_ip, container.name)
+                        continue
+
+                    host_ip = ''
                     if len(parts) == 3:
                         host_ip, host_port, container_port = parts
-                        rule = 'iptables -t nat -I LOCKER -d %s ! -i lxcbr0 -p tcp --dport %s -j DNAT --to %s:%s -m comment --comment \"%s\"' % (host_ip, host_port, container_ip, container_port, container.name)
-                        os.system(rule)
                     elif len(parts) == 2:
                         host_port, container_port = parts
-                        rule = 'iptables -t nat -I LOCKER -i lxcbr0 -p tcp --dport %s -j DNAT --to %s:%s -m comment --comment \"%s\"' % (host_port, container_ip, container_port, container.name)
-                        os.system(rule)
                     else:
                         logging.warn('Malformed ports directive: %s', container.yml['ports'])
                         continue
-                    os.system('iptables -t filter -I FORWARD ! -i lxcbr0 -o lxcbr0  -d %s -p tcp --dport %s -j ACCEPT' % (container_ip, container_port))
+
+                    add_dnat_rule()
+                    add_forward_rule()
         return ok
 
     def rmports(self, containers=None):
@@ -354,6 +452,34 @@ class Project(object):
         if containers == None:
             containers = self.containers
 
-        ok = True
-        logging.warn('Removing of iptables rules has not yet been implemented')
-        return ok
+        filter_table = iptc.Table(iptc.Table.FILTER)
+        filter_forward = iptc.Chain(filter_table, 'FORWARD')
+        filter_table.autocommit = False
+
+        nat_table = iptc.Table(iptc.Table.NAT)
+        locker_nat_chain = iptc.Chain(nat_table, 'LOCKER')
+        nat_table.autocommit = False
+
+        try:
+            logging.info('Removing netfilter rules')
+            for container in containers:
+                if container.running:
+                    logging.warn('Container %s is still running, services will not be available anymore', container.name)
+                for rule in locker_nat_chain.rules:
+                    for match in rule.matches:
+                        if match.name == 'comment' and match.comment == container.name:
+                            logging.info('Removing DNAT %s rule of \"%s\"', rule.protocol, container.name)
+                            locker_nat_chain.delete_rule(rule)
+                for rule in filter_forward.rules:
+                    for match in rule.matches:
+                        if match.name == 'comment' and match.comment == container.name:
+                            logging.info('Removing FORWARD %s rule of \"%s\"', rule.protocol, container.name)
+                            filter_forward.delete_rule(rule)
+        except iptc.IPTCError:
+            logging.warn('An arror occured during the deletion of rules for \"%s\", check for relics', container.name)
+        finally:
+            filter_table.commit()
+            filter_table.autocommit = True
+            nat_table.commit()
+            nat_table.autocommit = True
+        return True

@@ -13,16 +13,16 @@ Locker currently supports the following features:
 
 - Define containers in a YAML file similar to fig's syntax
 - Create, start, stop, and remove groups or selections of containers
-- Show the status of containers in you project
+- Show the status of containers in your project
 - Create containers as clones or based on LXC templates
 - Create an fstab file for bind mounts into the container
 - Optionally move bind-mounted folders from container after container creation to host, so that you do not mount empty folders within your container (need testing)
-- Automatically add port forwarding netfilter rules (prototypical)
+- Add or remove port forwarding netfilter rules (prototypical)
 
 Usage
 ===============
 
-Under contstruction...
+Under construction...
 
 Defining a Project
 ------------------
@@ -30,7 +30,7 @@ Defining a Project
 An example project definition in YAML::
 
     db:
-      template: 
+      template:
         name: "ubuntu"
         release: "precise"
       ports:
@@ -45,21 +45,37 @@ An example project definition in YAML::
       volumes:
        - "/opt/data/$name/var_log:/var/log"
     foo:
-      template: 
+      template:
         name: "ubuntu"
         release: "precise"
 
 Managing the Lifecycle
 ----------------------
 
-Creating, starting, stopping, and removing containers (output omitted)::
+Creating, starting, stopping, and removing containers (output some omitted)::
 
-    $ locker.py create
-    $ locker.py start locker_web locker_db
-    $ locker.py stop locker_web
-    $ locker.py rm locker_web
-    $ locker.py ports
-    
+    $ ./locker.py create
+    [...]
+    $ ./locker.py start locker_web locker_db
+    2014-12-07 12:56:23,596, INFO, Starting container locker_db
+    2014-12-07 12:56:24,758, INFO, Starting container locker_web
+    $ ./locker.py stop locker_web
+    2014-12-07 12:57:14,198, INFO, Stopping container locker_web
+    $ ./locker.py rm locker_web
+    Delete locker_web? [y/N]: y
+    2014-12-07 12:57:32,940, WARNING, Container locker_web is already stopped
+    $ ./locker.py ports
+    2014-12-07 13:47:56,917, INFO, Adding port forwarding rules for locker_db
+    2014-12-07 13:47:56,944, INFO, No port forwarding rules for locker_foo
+    2014-12-07 13:47:56,947, INFO, locker_web is not running, skipping adding ports rules
+    $ ./locker.py rmports
+    2014-12-07 13:48:51,413, INFO, Removing netfilter rules
+    2014-12-07 13:48:51,416, WARNING, Container locker_db is still running, services will not be available anymore
+    2014-12-07 13:48:51,422, INFO, Removing DNAT udp rule of "locker_db"
+    2014-12-07 13:48:51,424, INFO, Removing DNAT tcp rule of "locker_db"
+    2014-12-07 13:48:51,434, INFO, Removing FORWARD udp rule of "locker_db"
+    2014-12-07 13:48:51,435, INFO, Removing FORWARD tcp rule of "locker_db"
+
 Container Status
 ----------------
 
@@ -71,7 +87,7 @@ Container Status
     True    locker_db  RUNNING ('10.0.3.219',)
     True    locker_foo RUNNING ('10.0.3.179',)
     True    locker_web RUNNING ('10.0.3.162',)
-    
+
 Help
 ----
 
@@ -83,14 +99,14 @@ Help
                      [--project PROJECT] [--restart [RESTART]]
                      [{start,stop,rm,create,status,ports,rmports}]
                      [containers [containers ...]]
-    
+
     Manage LXC containers.
-    
+
     positional arguments:
       {start,stop,rm,create,status,ports,rmports}
                             Commmand to run
       containers            Selection of containers (default: all containers)
-    
+
     optional arguments:
       -h, --help            show this help message and exit
       --verbose [VERBOSE], -v [VERBOSE]
@@ -113,12 +129,10 @@ Help
 Limitations & Issues
 ====================
 
-- Must be run as root but there is no check for the user's uid at this time
+- Must be run as root
 - There is no "up" command yet, you must manually execute the rm, create, start, ports commands
 - Does not catch malformed YAML files and statements
 - Only directories are supported as bind mounts
-- Netfilter rules cannot yet be removed and still use Python's ``os.system()``. Is there a nice Python module? I don't find neither python-netfiler nor python-iptables intuitive.
-- In fact, the same netfilter rules may be added multiple times
 - Missing adequate documentation
 - No test cases
 - Does not support unprivileged containers
@@ -136,6 +150,7 @@ Requirements
   - logging
   - shutil
   - os, sys, time
+  - `iptables <https://github.com/ldx/python-iptables>`_
 
 - Linux Containers userspace tools and libraries
 
@@ -144,7 +159,6 @@ To-Dos / Feature Wish List
 
 - Resolve everything on the limitations & issues list :-)
 - Export and import of containers, optionally including the bind-mounted data
-- Store added iptables rules so that they can be removed even when the YAML file was changed
 - Support IPv6 addresses and netfilter rules
 - Add a hostname parameter and support the configuration of the FQDN
 - Support different container paths

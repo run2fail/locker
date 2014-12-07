@@ -3,7 +3,7 @@
 Manage LXC containers like with Docker's fig
 
 Locker enables to specify containers and their configuration in a file similar
-to the YAML confuguration used by fig.
+to the YAML configuration used by fig.
 
 Features:
 - Enables to create new containers from templates or by cloning
@@ -30,6 +30,11 @@ import logging
 from project import Project
 
 def parse_args():
+    '''
+    Parse the command line arguments
+
+    :returns: Dictionary of the parsed arguments
+    '''
     parser = argparse.ArgumentParser(description='Manage LXC containers.')
     parser.add_argument('--verbose', '-v', nargs='?', type=bool, const=True, default=False, help='Show more output')
     parser.add_argument('--version', nargs='?', type=bool, const=True, default=False, help='Print version and exit')
@@ -44,6 +49,9 @@ def parse_args():
     return args_dict
 
 def main():
+    '''
+    The main function
+    '''
     logging.basicConfig(format='%(asctime)s, %(levelname)s, %(message)s', level=logging.INFO)
     args = parse_args()
     if args['verbose']:
@@ -57,7 +65,10 @@ def main():
     with open('%s' % (args['file'])) as yaml_file:
         yml = yaml.load(yaml_file)
     logging.debug('Parsed YAML Configuration:\n\t%s', yml)
-    
+
+    if not os.geteuid() == 0:
+        logging.fatal("Locker must be run as root to modify netfilter rules and as unprivileged containers are not yet supported.")
+        sys.exit(1)
     pro = Project(yml, args)
 
     if args['command'] == 'status':
