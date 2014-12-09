@@ -18,7 +18,6 @@ Features:
 __author__ = "BB"
 __copyright__ = "Copyright 2014"
 __license__ = "GPLv3 or later"
-__version__ = "0.1"
 __status__ = "Prototype"
 
 import os
@@ -27,7 +26,7 @@ import yaml
 import argparse
 import lxc
 import logging
-from project import Project
+from locker import Project
 
 def parse_args():
     '''
@@ -56,15 +55,18 @@ def main():
     args = parse_args()
     if args['verbose']:
         logging.root.setLevel(logging.DEBUG)
-    logging.debug('Parsed arguments:\n\t%s', args)
+    logging.debug('Parsed arguments: %s', args)
 
     if args['version']:
         sys.stdout.write('%s\n' % __version__)
         sys.exit()
 
+    if not os.path.isfile(args['file']):
+        logging.critical('Configuration file \"%s\" does not exist or cannot be accessed', args['file'])
+        sys.exit(1)
     with open('%s' % (args['file'])) as yaml_file:
         yml = yaml.load(yaml_file)
-    logging.debug('Parsed YAML Configuration:\n\t%s', yml)
+    logging.debug('Parsed YAML Configuration: %s', yml)
 
     if not os.geteuid() == 0:
         logging.fatal("Locker must be run as root to modify netfilter rules and as unprivileged containers are not yet supported.")

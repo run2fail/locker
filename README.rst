@@ -1,4 +1,4 @@
-.. image:: ./logo.png
+.. image:: ./docs/logo.png
 
 About Locker
 ===============
@@ -156,7 +156,6 @@ Limitations & Issues
 - Missing adequate documentation
 - No test cases
 - Does not support unprivileged containers
-- Unstructured project: neither a Python module, nor an installable application - no Debian package meta-data yet
 - Extensive code refactoring required
 
 Requirements
@@ -183,11 +182,11 @@ To-Dos / Feature Wish List
 - Resolve everything on the limitations & issues list :-)
 - Export and import of containers, optionally including the bind-mounted data
 - Support IPv6 addresses and netfilter rules
-- Add a hostname parameter and support the configuration of the FQDN
 - Support different container paths
 - Support setting parameters in the container's config (e.g. /var/lib/lxc/container/contig) via the YAML file
 - Evaluate the order in which to create new cloned containers to handle dependency problems (containers are currently created in alphabetical order)
 - Support execution of commands inside the container after creation, e.g., to install the puppet agent
+- Add Debian package meta-data
 
 Words of Warning
 ================
