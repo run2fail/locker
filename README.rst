@@ -98,11 +98,15 @@ Container Status
 ::
 
     $ locker.py status
-    Defined Name       State   IPs
-    --------------------------------------------
-    True    locker_db  RUNNING ('10.0.3.219',)
-    True    locker_foo RUNNING ('10.0.3.179',)
-    True    locker_web RUNNING ('10.0.3.162',)
+      Def.   Name         FQDN             State     IPs          Ports
+      --------------------------------------------------------------------------------------------
+      True   locker_db    db.example.net   RUNNING   10.0.3.118   0.0.0.0:8001->8001/tcp
+                                                                  0.0.0.0:8000->8000/udp
+                                                                  0.0.0.0:8000->8000/tcp
+      True   locker_foo                    RUNNING   10.0.3.94
+      True   locker_web                    RUNNING   10.0.3.21    192.168.2.123:8003->8003/udp
+                                                                  192.168.2.123:8003->8003/tcp
+                                                                  192.168.2.123:8002->8002/tcp
 
 Help
 ----
