@@ -64,7 +64,10 @@ class Project(object):
 
         result = True
         for container in containers:
-            result &= container.start()
+            cresult = container.start()
+            if cresult and not self.args['no_ports']:
+                cresult = self.ports([container])
+            result &= cresult
         return result
 
     def stop(self, containers=None):
@@ -78,7 +81,10 @@ class Project(object):
 
         result = True
         for container in containers:
-            result &= container.stop()
+            cresult = container.stop()
+            if cresult and not self.args['no_ports']:
+                cresult = self.rmports([container])
+            result &= cresult
         return result
 
     def create(self, containers=None):
@@ -184,14 +190,16 @@ class Project(object):
 
         # TODO try catch should be moved to Container.rmports()
         try:
-            logging.info('Removing netfilter rules')
+            logging.debug('Removing netfilter rules')
             for container in containers:
                 container.rmports()
         except iptc.IPTCError:
             logging.warn('An arror occured during the deletion of rules for \"%s\", check for relics', container.name)
         finally:
             filter_table.commit()
+            filter_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
             filter_table.autocommit = True
             nat_table.commit()
+            nat_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
             nat_table.autocommit = True
         return True

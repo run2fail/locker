@@ -17,7 +17,7 @@ Locker currently supports the following features:
 - Create containers as clones or based on LXC templates
 - Create an fstab file to enable bind mounted directories from the host into the container(-s)
 - Optionally, bind-mounted folders may be moved from the container to the host after container creation, so that you do not mount empty folders within your container (needs more testing)
-- Add or remove port forwarding netfilter rules (prototypical, needs testing)
+- Add or remove port forwarding netfilter rules
 - Multi-colored output
 
 Usage
@@ -95,7 +95,7 @@ Creating, starting, stopping, removing containers and netfilter modifications (s
 Container Status
 ----------------
 
-::
+Example output::
 
     $ locker.py status
       Def.   Name         FQDN             State     IPs          Ports
@@ -111,7 +111,7 @@ Container Status
 Help
 ----
 
-::
+locker's help::
 
     usage: locker.py [-h] [--verbose [VERBOSE]] [--version [VERSION]]
                      [--delete-dont-ask [DELETE_DONT_ASK]]
@@ -125,7 +125,8 @@ Help
     positional arguments:
       {start,stop,rm,create,status,ports,rmports}
                             Commmand to run
-      containers            Selection of containers (default: all containers)
+      containers            Space separated list of containers (default: all
+                            containers)
 
     optional arguments:
       -h, --help            show this help message and exit
@@ -145,18 +146,28 @@ Help
       --restart [RESTART], -r [RESTART]
                             Restart already running containers when using "start"
                             command
+      --no-ports [NO_PORTS], -n [NO_PORTS]
+                            Do not add/remove netfilter rules (used with command
+                            start/stop)
+
+About the commands:
+
+- create: Create new containers based on templates or as clones. The container's "template" subtree in the YAML configuration is provided as the template's arguments.
+- start: Start the container and add port, i.e., netfilter rules on success.
+- stop: Stop the container and remove port, i.e., netfilter rules on success.
+- ports: Add port, i.e., netfilter rules.
+- rmport: Remove port i.e., netfilter rules.
+- status: Show container status.
 
 Limitations & Issues
 ====================
 
 - Must be run as root
-- There is no "up" command yet, you must manually execute the rm, create, start, ports commands
 - Does not catch malformed YAML files and statements
 - Only directories are supported as bind mounts
-- Missing adequate documentation
+- Improve documentation and examples
 - No test cases
 - Does not support unprivileged containers
-- Extensive code refactoring required
 
 Requirements
 ============
@@ -165,7 +176,7 @@ Requirements
 
   - yaml
   - argparse
-  - lxc
+  - lxc (official lxc bindings from the lxc project)
   - logging
   - shutil
   - os, sys, time
@@ -187,6 +198,7 @@ To-Dos / Feature Wish List
 - Evaluate the order in which to create new cloned containers to handle dependency problems (containers are currently created in alphabetical order)
 - Support execution of commands inside the container after creation, e.g., to install the puppet agent
 - Add Debian package meta-data
+- Add and use custom bridge device (e.g. locker0)
 
 Words of Warning
 ================

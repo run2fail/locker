@@ -386,8 +386,6 @@ echo "%s" > "%s/etc/hostname"
         dnat_rules = list()
         try:
             self.logger.debug('Searching netfilter rules')
-            if not self.running:
-                return ''
             for rule in [rul for rul in locker_nat_chain.rules if rul.protocol in ['tcp', 'udp']]:
                 for match in rule.matches:
                     if match.name == 'comment' and match.comment == self.name:

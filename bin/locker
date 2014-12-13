@@ -42,8 +42,9 @@ def parse_args():
     parser.add_argument('--file', '-f', default='./locker.yml', help='Specify an alternate locker file (default: locker.yml)')
     parser.add_argument('--project', '-p', default=os.path.basename(os.getcwd()), help='Specify an alternate project name (default: directory name)')
     parser.add_argument('--restart', '-r', nargs='?', type=bool, const=True, default=False, help='Restart already running containers when using \"start\" command')
+    parser.add_argument('--no-ports', '-n', nargs='?', type=bool, const=True, default=False, help='Do not add/remove netfilter rules (used with command start/stop)')
     parser.add_argument('command', nargs='?', choices=['start', 'stop', 'rm', 'create', 'status', 'ports', 'rmports'], default='start', help='Commmand to run')
-    parser.add_argument('containers', nargs='*', default=None, help='Selection of containers (default: all containers)')
+    parser.add_argument('containers', nargs='*', default=None, help='Space separated list of containers (default: all containers)')
     args_dict = vars(parser.parse_args())
     return args_dict
 

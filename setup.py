@@ -1,4 +1,6 @@
-from distutils.core import setup
+#!/usr/bin/env python3
+
+from setuptools import setup
 import re
 
 version_file = 'locker/_version.py'
