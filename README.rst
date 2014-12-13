@@ -31,29 +31,29 @@ Defining a Project
 An example project definition in YAML::
 
     db:
-    template:
-        name: "ubuntu"
-        release: "precise"
-    ports:
-    - "8000:8000"
-    - "8000:8000/udp"
-    - "8001:8001/tcp"
-    volumes:
-    - "/opt/data/db/var_log:/var/log"
-    - "/opt/data/db/etc:/etc"
-    fqdn: 'db.example.net'
+        template:
+            name: "ubuntu"
+            release: "precise"
+        ports:
+        - "8000:8000"
+        - "8000:8000/udp"
+        - "8001:8001/tcp"
+        volumes:
+        - "/opt/data/db/var_log:/var/log"
+        - "/opt/data/db/etc:/etc"
+        fqdn: 'db.example.net'
     web:
-    clone: "ubuntu"
-    ports:
-    - "192.168.2.123:8002:8002"
-    - "192.168.2.123:8003:8003/tcp"
-    - "192.168.2.123:8003:8003/udp"
-    volumes:
-    - "/opt/data/$name/var_log:/var/log"
+        clone: "ubuntu"
+        ports:
+        - "192.168.2.123:8002:8002"
+        - "192.168.2.123:8003:8003/tcp"
+        - "192.168.2.123:8003:8003/udp"
+        volumes:
+        - "/opt/data/$name/var_log:/var/log"
     foo:
-    template:
-        name: "ubuntu"
-        release: "precise"
+        template:
+            name: "ubuntu"
+            release: "precise"
 
 You can use some simple placeholders like $name or $project in your volume
 definitions.
