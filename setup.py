@@ -26,6 +26,6 @@ setup(
         'python-iptables',
         'colorama',
         'PrettyTable',
-        'python-lxc',
+        'PyYaml',
     ],
 )

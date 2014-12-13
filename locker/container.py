@@ -33,21 +33,39 @@ class Container(lxc.Container):
         :returns:   List of container objects
         '''
         containers = list()
+        all_containers = list()
         colors = [Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
 
         for num, name in enumerate(sorted(yml.keys())):
             pname = '%s_%s' % (project.name, name)
-            if len(project.args['containers']) and pname not in project.args['containers']:
-                logging.debug('%s was not selected', pname)
-                continue
-
             if pname not in lxc.list_containers():
                 logging.debug('Container \"%s\" does not exist yet or is not accessible as this user.', pname)
             color = colors[num % len(colors)]
             container = Container(pname, yml[name], project, color)
+
+            all_containers.append(container)
+            if len(project.args['containers']) and pname not in project.args['containers']:
+                logging.debug('%s was not selected', pname)
+                continue
             containers.append(container)
         logging.debug('Containers: %s', [con.name for con in containers])
-        return containers
+        return (containers, all_containers)
+
+    def get_ips(self, retries=10):
+        '''
+        Get IPs of the container
+
+        :param retries: Try a again this many times if IPs are not available yet
+        :returns: List of IPs
+        '''
+        ips = lxc.Container.get_ips(self)
+        while len(ips) == 0 and self.running and retries > 0:
+            # TODO Should implement a timeout here
+            self.logger.debug('Waiting to acquire an IP address')
+            time.sleep(1)
+            ips = lxc.Container.get_ips(self)
+            retries -= 1
+        return ips
 
     def __init__(self, name, yml, project, color=Fore.RESET, config_path=None):
         self.yml = yml
@@ -164,7 +182,7 @@ class Container(lxc.Container):
         Create a clone of this container and copy extended attributes
         to the clone.
 
-        :return: Container clone of False
+        :returns: Container clone of False
         '''
         cloned = lxc.Container.clone(self, proxy.name)
         if not cloned.defined:
@@ -285,12 +303,12 @@ class Container(lxc.Container):
             return mdict
 
         if not 'ports' in self.yml:
-            self.logger.info('No port forwarding rules')
+            self.logger.debug('No port forwarding rules')
             return True
         if not self.running:
             self.logger.info('Container is not running, skipping adding ports rules')
             return True
-        self.logger.info('Adding port forwarding rules')
+        self.logger.debug('Adding port forwarding rules')
 
         locker_nat_chain = iptc.Chain(iptc.Table(iptc.Table.NAT), 'LOCKER')
         filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
@@ -302,11 +320,6 @@ class Container(lxc.Container):
             if not port_conf:
                 continue
             ips = self.get_ips()
-            while len(ips) == 0 and self.running:
-                # TODO Should implement a timeout here
-                self.logger.debug('Waiting to aquire an IP address')
-                time.sleep(1)
-                ips = self.get_ips()
             for container_ip in ips:
                 if container_ip.find(':') >= 0:
                     self.logger.warn('Found IPv6 address %s - not yet supported', container_ip)
@@ -405,6 +418,7 @@ echo "%s" > "%s/etc/hostname"
         Actually, this method moves the data from the container to the host to
         preserve the owner, group, and mode configuration.
         TODO Is there no way to "cp -ar" with shutil or another module?
+        TODO Refactor method in smaller parts
 
         :param container: The container to handle
         '''
@@ -462,3 +476,113 @@ echo "%s" > "%s/etc/hostname"
                 except OSError:
                     self.logger.warn('Could not create \"%s\" on host (\"%s\" does not exist inside the container)', outside, inside)
                     continue
+
+    def links(self, auto_update=False):
+        '''
+        Link container to another container
+
+        :returns: False on any error, else True
+        '''
+
+        def link_container(name, alias=None, auto_update=False):
+            self.logger.debug('Linking with %s', name)
+            container = self.project.get_container(name)
+            if not container:
+                self.logger.error('Cannot link with unavailable container: %s', name)
+                return False
+            if not container.running:
+                # Suppress message when it's clear that the container may have been stopped
+                if auto_update:
+                    self.logger.debug('Cannot link with stopped container: %s', name)
+                else:
+                    self.logger.warning('Cannot link with stopped container: %s', name)
+                return False
+            ips = container.get_ips()
+            aliases = list()
+            if 'fqdn' in container.yml:
+                aliases.append(container.yml['fqdn'])
+            if alias:
+                aliases.append(alias)
+            entries = list()
+            for ip in ips:
+                entries.append((ip, name, aliases))
+            self._update_etc_hosts(entries)
+
+
+        self.logger.debug('Updating links')
+        if not 'links' in self.yml:
+            self.logger.debug('No links defined')
+            return True
+        # TODO What are valid container names/identifiers?!? the documentation
+        # only mentions "alphanumeric string" but, e.g., underscores are also ok.
+        # TODO Check should be moved to project
+        # TODO Add support for multiple aliases. Alt: Change YAML conf. format.
+        link_regex = re.compile(r'^(?P<name>[\d\w_-]+)(?::(?P<alias>[\d\w_-]*))?$')
+        for link in self.yml['links']:
+            match = link_regex.match(link)
+            if not match:
+                self.logger.error('Invalid link statement: %s', link)
+                continue
+            group_dict = match.groupdict()
+            name = group_dict['name']
+            alias = None
+            if 'alias' in group_dict:
+                alias = group_dict['alias']
+            link_container(name, alias, auto_update)
+        return True
+
+    def _update_etc_hosts(self, entries):
+        '''
+        Update /etc/hosts with new entries
+
+        This method deletes old, project specific entries from /etc/hosts and
+        then adds the specified ones.
+        Locker entries are suffixed with the project name as comment
+
+        :params: List of entries to add
+        '''
+        rootfs = self.get_config_item('lxc.rootfs')
+        assert len(rootfs)
+        etc_hosts = '%s/etc/hosts' % (rootfs)
+        with open(etc_hosts, 'r') as etc_hosts_rfile:
+            lines = etc_hosts_rfile.readlines()
+        regex = re.compile('^.* # %s_.+$' % self.project.name)
+        with open(etc_hosts, 'w+') as etc_hosts_wfile:
+            for line in lines:
+                if regex.match(line):
+                    self.logger.debug('Removing from /etc/hosts: %s', line[:-1])
+                    continue
+                etc_hosts_wfile.write(line)
+            for ip, name, aliases in entries:
+                new_entry = '%s %s %s # %s_%s' % (ip, name, ' '.join(aliases), self.project.name, name)
+                self.logger.debug('Adding to /etc/hosts: %s', new_entry)
+                etc_hosts_wfile.write('%s\n' % (new_entry))
+
+    def rmlinks(self):
+        ''' Update /etc/hosts by removing all links
+        '''
+        self.logger.debug('Removing links')
+        self._update_etc_hosts([])
+        return True
+
+    def linked_to(self):
+        '''
+        Return list of linked containers based on /etc/hosts
+
+        :returns: List of linked containers
+        '''
+        linked = list()
+        try:
+            rootfs = self.get_config_item('lxc.rootfs')
+        except KeyError:
+            return linked
+        assert len(rootfs)
+        etc_hosts = '%s/etc/hosts' % (rootfs)
+        with open(etc_hosts, 'r') as etc_hosts_rfile:
+            lines = etc_hosts_rfile.readlines()
+        regex = re.compile('^.* # (%s_.+)$' % self.project.name)
+        for line in lines:
+            match = regex.match(line)
+            if match:
+                linked.append(match.group(1))
+        return linked

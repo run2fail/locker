@@ -9,6 +9,9 @@ Locker is not yet a production ready solution but a prototype implementation. It
 
 Please consider that Linux containers do not ship with an installed application like Docker containers. Linux containers are usually created based on template files, i.e., you get a base installation of your user space of choice. You either must write your own enhanced LXC template, install your application manually, or deploy your application by using a configuration management system like `puppet <http://puppetlabs.com/puppet/what-is-puppet>`_, `chef <https://www.chef.io/chef/>`_, ...
 
+Features
+--------
+
 Locker currently supports the following features:
 
 - Define groups of containers in a YAML file similar to fig's syntax
@@ -19,6 +22,21 @@ Locker currently supports the following features:
 - Optionally, bind-mounted folders may be moved from the container to the host after container creation, so that you do not mount empty folders within your container (needs more testing)
 - Add or remove port forwarding netfilter rules
 - Multi-colored output
+- (Simple) Linking of containers by adding their hostnames to /etc/hosts
+
+Challenges implementing Locker
+------------------------------
+
+Some convenience features are missing in the lxc user utilities.
+Hence Locker must implement features where `fig <http://fig.sh>`_ can simply rely on `Docker <http://www.docker.com>`_.
+
+- lxc does not support port forwarding, resp. does not provide an easy way to add/remove netfilter rules. Of course, you can always use iptables directly but that is not really convenient for everybody.
+- lxc containers can communicate with each other in the default configuration as they are behind the same bridge device. Yet the hostnames/full qualified domain names are not known, i.e., there is no "linking" support.
+- In general, the lxc container and network configuration requires manual work/modifications, e.g., when containers shall get static IP addresses.
+- For some users it may be undesirable that containers are actually NAT-ted behind the default bridge device and that the can communicate with each other at all. This can be changed but, again, there is no convenient frontend or command line tool.
+
+Note: Please correct me if I am wrong or if there is some solution available! This would really help me. Thanks!
+
 
 Usage
 ===============
@@ -123,7 +141,7 @@ locker's help::
     Manage LXC containers.
 
     positional arguments:
-      {start,stop,rm,create,status,ports,rmports}
+      {start,stop,rm,create,status,ports,rmports,link,rmlink}
                             Commmand to run
       containers            Space separated list of containers (default: all
                             containers)
@@ -149,15 +167,19 @@ locker's help::
       --no-ports [NO_PORTS], -n [NO_PORTS]
                             Do not add/remove netfilter rules (used with command
                             start/stop)
+      --no-links [NO_LINKS], -m [NO_LINKS]
+                            Do not add/remove links (used with command start/stop)
 
 About the commands:
 
 - create: Create new containers based on templates or as clones. The container's "template" subtree in the YAML configuration is provided as the template's arguments.
 - start: Start the container and add port, i.e., netfilter rules on success.
 - stop: Stop the container and remove port, i.e., netfilter rules on success.
-- ports: Add port, i.e., netfilter rules.
-- rmport: Remove port i.e., netfilter rules.
+- ports: Add port, i.e., netfilter rules. Automatically done when using start command.
+- rmport: Remove port i.e., netfilter rules. Automatically done when using stop command.
 - status: Show container status.
+- links: Add/updates links in container. Automatically done when using start command. Subsequent calls will update the links and remove stale entries of stopped containers.
+- rmlinks: Removes all links from container.
 
 Limitations & Issues
 ====================
@@ -174,16 +196,8 @@ Requirements
 
 - Python3 and the following modules
 
-  - yaml
-  - argparse
   - lxc (official lxc bindings from the lxc project)
-  - logging
-  - shutil
-  - os, sys, time
-  - `iptables <https://github.com/ldx/python-iptables>`_
-  - `colorama <https://github.com/tartley/colorama>`_
-  - `prettytable <https://code.google.com/p/prettytable/>`_
-  - re
+  - see list of Requirements in setup.py
 
 - Linux Containers userspace tools and libraries
 
@@ -199,6 +213,15 @@ To-Dos / Feature Wish List
 - Support execution of commands inside the container after creation, e.g., to install the puppet agent
 - Add Debian package meta-data
 - Add and use custom bridge device (e.g. locker0)
+
+  - Prevent communication between containers in the default configuration
+  - Add netfilter rules for inter-container commmunication when "links" are defined
+
+- Setting environment variables in linked containers?! Not required in my use cases. Name resolution is more important as the initial configuration of applications is realized by a configuration management system.
+- The code should make more use of try-except as this is more "pythonic": "Ask forgiveness, not permission"
+- Use string templates, see PEP 3101 and PEP 3101
+- Improve regular expressions and clarify what is actually a valid container identifier/name.
+- Use @property in Container class
 
 Words of Warning
 ================

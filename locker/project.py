@@ -24,18 +24,37 @@ class Project(object):
         '''
         self.args = args
         self.name = args['project']
-        self.containers = Container.get_containers(self, yml)
+        # TODO Add YAML configuration check here
+        containers, all_containers = Container.get_containers(self, yml)
+        self.containers = containers
+        self.all_containers = all_containers
         self.yml = yml
+
+    def get_container(self, name):
+        '''
+        Get container based on name (excluding project prefix)
+
+        :param name: Name of the container
+        :returns: Container object if found, else None
+        '''
+        name = '%s_%s' % (self.name, name)
+        for con in self.containers:
+            if con.name == name:
+                return con
+        return None
 
     def status(self, containers=None):
         ''' Show status of all project specific containers
 
         :param containers: List of containers or None (== all containers)
         '''
+        def break_and_add_color(vals):
+            return '\n'.join(['%s%s%s' % (container.color, v, Fore.RESET) for v in vals])
+
         if containers == None:
             containers = self.containers
 
-        header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports']
+        header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports', 'Links']
         table = prettytable.PrettyTable(header)
         table.align = 'l'
         table.hrules = prettytable.HEADER
@@ -49,8 +68,10 @@ class Project(object):
             if container.running:
                 ips = ','.join(container.get_ips())
             dnat_rules = container.get_netfiler_rules()
-            ports = '\n'.join(['%s:%s->%s/%s' % (dip.split('/')[0], dport, to_port, proto) for proto, (dip, dport), (to_ip, to_port) in dnat_rules])
-            table.add_row(['%s%s%s' % (container.color, x, Fore.RESET) for x in [defined, name, fqdn, state, ips, ports]])
+            ports = ['%s:%s->%s/%s' % (dip.split('/')[0], dport, to_port, proto) for proto, (dip, dport), (to_ip, to_port) in dnat_rules]
+            ports = break_and_add_color(ports)
+            linked_to = break_and_add_color(container.linked_to())
+            table.add_row(['%s%s%s' % (container.color, x, Fore.RESET) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
         sys.stdout.write(table.get_string()+'\n')
 
     def start(self, containers=None):
@@ -68,6 +89,8 @@ class Project(object):
             if cresult and not self.args['no_ports']:
                 cresult = self.ports([container])
             result &= cresult
+        if not self.args['no_links']:
+            self.links(self.all_containers, auto_update=True)
         return result
 
     def stop(self, containers=None):
@@ -85,6 +108,8 @@ class Project(object):
             if cresult and not self.args['no_ports']:
                 cresult = self.rmports([container])
             result &= cresult
+        if not self.args['no_links']:
+            self.links(containers=self.all_containers, auto_update=True)
         return result
 
     def create(self, containers=None):
@@ -203,3 +228,31 @@ class Project(object):
             nat_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
             nat_table.autocommit = True
         return True
+
+    def links(self, containers=None, auto_update=False):
+        ''' Add links in all or selected containers
+
+        :param containers: List of containers or None (== all containers)
+        :returns: False on any error, else True
+        '''
+        if containers == None:
+            containers = self.containers
+
+        result = True
+        for container in containers:
+            result &= container.links(auto_update)
+        return result
+
+    def rmlinks(self, containers=None):
+        ''' Remove links in all or selected containers
+
+        :param containers: List of containers or None (== all containers)
+        :returns: False on any error, else True
+        '''
+        if containers == None:
+            containers = self.containers
+
+        result = True
+        for container in containers:
+            result &= container.rmlinks()
+        return result

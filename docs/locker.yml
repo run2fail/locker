@@ -18,7 +18,11 @@ web:
    - "192.168.2.123:8003:8003/udp"
   volumes:
    - "/opt/data/$name/var_log:/var/log"
+  links:
+   - "db:database"
 foo:
   template:
     name: "ubuntu"
     release: "precise"
+  links:
+  - "db"
