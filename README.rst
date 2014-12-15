@@ -3,11 +3,26 @@
 About Locker
 ===============
 
-Locker is my take on `Docker <http://www.docker.com>`_  + `fig <http://fig.sh>`_ applied for `Linux containers (LXC) <https://linuxcontainers.org/>`_. Locker wraps the lxc utilities like fig does for Docker.
+Locker is my take on `Docker <http://www.docker.com>`_  + `fig <http://fig.sh>`_
+applied for `Linux containers (LXC) <https://linuxcontainers.org/>`_. Locker
+wraps the lxc utilities like fig does for Docker.
 
-Locker is not yet a production ready solution but a prototype implementation. Its feature set is mainly focused on my personal application domain. Most notably, I required a solution to set up groups of Ubuntu containers with bind-mounted folders to store critical data and to make services from the containers available to the outside world by port forwarding. I needed a complete base installations in the containers to support security auto-updates, cron jobs, ssh access, etc. which ruled out pure application containers. Locker is a simple Python application that simplifies these tasks.
+Locker is not yet a production ready solution but a prototype implementation.
+Its feature set is mainly focused on my personal application domain. Most
+notably, I required a solution to set up groups of Ubuntu containers with
+bind-mounted folders to store critical data and to make services from the
+containers available to the outside world by port forwarding. I needed a
+complete base installations in the containers to support security auto-updates,
+cron jobs, ssh access, etc. which ruled out pure application containers. Locker
+is a simple Python application that simplifies these tasks.
 
-Please consider that Linux containers do not ship with an installed application like Docker containers. Linux containers are usually created based on template files, i.e., you get a base installation of your user space of choice. You either must write your own enhanced LXC template, install your application manually, or deploy your application by using a configuration management system like `puppet <http://puppetlabs.com/puppet/what-is-puppet>`_, `chef <https://www.chef.io/chef/>`_, ...
+Please consider that Linux containers do not ship with an installed application
+like Docker containers. Linux containers are usually created based on template
+files, i.e., you get a base installation of your user space of choice. You
+either must write your own enhanced LXC template, install your application
+manually, or deploy your application by using a configuration management system
+like `puppet <http://puppetlabs.com/puppet/what-is-puppet>`_,
+`chef <https://www.chef.io/chef/>`_, ...
 
 Features
 --------
@@ -18,8 +33,11 @@ Locker currently supports the following features:
 - Create, start, stop, and remove groups or selections of containers
 - Show the status of containers in your project
 - Create containers as clones or based on LXC templates
-- Create an fstab file to enable bind mounted directories from the host into the container(-s)
-- Optionally, bind-mounted folders may be moved from the container to the host after container creation, so that you do not mount empty folders within your container (needs more testing)
+- Create an fstab file to enable bind mounted directories from the host into the
+  container(-s)
+- Optionally, bind-mounted folders may be moved from the container to the host
+  after container creation, so that you do not mount empty folders within your
+  container (needs more testing)
 - Add or remove port forwarding netfilter rules
 - Multi-colored output
 - (Simple) Linking of containers by adding their hostnames to /etc/hosts
@@ -27,15 +45,25 @@ Locker currently supports the following features:
 Challenges implementing Locker
 ------------------------------
 
-Some convenience features are missing in the lxc user utilities.
-Hence Locker must implement features where `fig <http://fig.sh>`_ can simply rely on `Docker <http://www.docker.com>`_.
+Some convenience features are missing in the lxc user utilities. Hence Locker
+must implement features where `fig <http://fig.sh>`_ can simply rely on
+`Docker <http://www.docker.com>`_.
 
-- lxc does not support port forwarding, resp. does not provide an easy way to add/remove netfilter rules. Of course, you can always use iptables directly but that is not really convenient for everybody.
-- lxc containers can communicate with each other in the default configuration as they are behind the same bridge device. Yet the hostnames/full qualified domain names are not known, i.e., there is no "linking" support.
-- In general, the lxc container and network configuration requires manual work/modifications, e.g., when containers shall get static IP addresses.
-- For some users it may be undesirable that containers are actually NAT-ted behind the default bridge device and that the can communicate with each other at all. This can be changed but, again, there is no convenient frontend or command line tool.
+- lxc does not support port forwarding, resp. does not provide an easy way to
+  add/remove netfilter rules. Of course, you can always use iptables directly
+  but that is not really convenient for everybody.
+- lxc containers can communicate with each other in the default configuration as
+  they are behind the same bridge device. Yet the hostnames/full qualified
+  domain names are not known, i.e., there is no "linking" support.
+- In general, the lxc container and network configuration requires manual
+  work/modifications, e.g., when containers shall get static IP addresses.
+- For some users it may be undesirable that containers are actually NAT-ted
+  behind the default bridge device and that the can communicate with each other
+  at all. This can be changed but, again, there is no convenient frontend or
+  command line tool.
 
-Note: Please correct me if I am wrong or if there is some solution available! This would really help me. Thanks!
+Note: Please correct me if I am wrong or if there is some solution available!
+This would really help me. Thanks!
 
 
 Usage
@@ -43,10 +71,20 @@ Usage
 
 Under construction...
 
+Installation
+------------
+
+.. code:: bash
+
+   $ ./setup.py install
+
+
 Defining a Project
 ------------------
 
-An example project definition in YAML::
+An example project definition in YAML:
+
+.. code:: yaml
 
     db:
         template:
@@ -68,13 +106,18 @@ An example project definition in YAML::
         - "192.168.2.123:8003:8003/udp"
         volumes:
         - "/opt/data/$name/var_log:/var/log"
+        links:
+        - "db:database"
     foo:
         template:
             name: "ubuntu"
             release: "precise"
+        links:
+        - "db"
 
 You can use some simple placeholders like $name or $project in your volume
 definitions.
+
 Different formats of port forwarding rules are supported. If the protocol is
 not specified, the default, i.e. tcp, will be used to configure netfilter rules.
 The fqdn attribute enables to set the container's hostname and full qualified
@@ -83,26 +126,32 @@ the mounting has been done. Several applications rely on the fqdn, e.g., the
 puppet agent of the puppet configuration system generates and selects TLS/SSL
 certificates based on the fqdn.
 
+"links" entries will add the specified, i.e., linked container's hostname,
+optional alias, and optional fqdn to the linking container's /etc/hosts file.
+
 Managing the Lifecycle
 ----------------------
 
-Creating, starting, stopping, removing containers and netfilter modifications (some output omitted)::
+Creating, starting, stopping, removing containers and netfilter modifications
+(some output omitted):
 
-    $ ./locker.py create
+.. code::
+
+    $ locker create
     [...]
-    $ ./locker.py start locker_web locker_db
+    $ locker start locker_web locker_db
     2014-12-07 12:56:23,596, INFO, Starting container locker_db
     2014-12-07 12:56:24,758, INFO, Starting container locker_web
-    $ ./locker.py stop locker_web
+    $ locker stop locker_web
     2014-12-07 12:57:14,198, INFO, Stopping container locker_web
-    $ ./locker.py rm locker_web
+    $ locker rm locker_web
     Delete locker_web? [y/N]: y
     2014-12-07 12:57:32,940, WARNING, Container locker_web is already stopped
-    $ ./locker.py ports
+    $ locker ports
     2014-12-07 13:47:56,917, INFO, Adding port forwarding rules for locker_db
     2014-12-07 13:47:56,944, INFO, No port forwarding rules for locker_foo
     2014-12-07 13:47:56,947, INFO, locker_web is not running, skipping adding ports rules
-    $ ./locker.py rmports
+    $ locker rmports
     2014-12-07 13:48:51,413, INFO, Removing netfilter rules
     2014-12-07 13:48:51,416, WARNING, Container locker_db is still running, services will not be available anymore
     2014-12-07 13:48:51,422, INFO, Removing DNAT udp rule of "locker_db"
@@ -113,30 +162,35 @@ Creating, starting, stopping, removing containers and netfilter modifications (s
 Container Status
 ----------------
 
-Example output::
+Example output:
 
-    $ locker.py status
-      Def.   Name         FQDN             State     IPs          Ports
-      --------------------------------------------------------------------------------------------
+.. code::
+
+    $ locker status
+      Def.   Name         FQDN             State     IPs          Ports                          Links
+    --------------------------------------------------------------------------------------------------------
       True   locker_db    db.example.net   RUNNING   10.0.3.118   0.0.0.0:8001->8001/tcp
                                                                   0.0.0.0:8000->8000/udp
                                                                   0.0.0.0:8000->8000/tcp
-      True   locker_foo                    RUNNING   10.0.3.94
-      True   locker_web                    RUNNING   10.0.3.21    192.168.2.123:8003->8003/udp
+      True   locker_foo                    RUNNING   10.0.3.94                                   locker_db
+      True   locker_web                    RUNNING   10.0.3.21    192.168.2.123:8003->8003/udp   locker_db
                                                                   192.168.2.123:8003->8003/tcp
                                                                   192.168.2.123:8002->8002/tcp
 
 Help
 ----
 
-locker's help::
+locker's help output:
 
-    usage: locker.py [-h] [--verbose [VERBOSE]] [--version [VERSION]]
-                     [--delete-dont-ask [DELETE_DONT_ASK]]
-                     [--dont-copy-on-create [DONT_COPY_ON_CREATE]] [--file FILE]
-                     [--project PROJECT] [--restart [RESTART]]
-                     [{start,stop,rm,create,status,ports,rmports}]
-                     [containers [containers ...]]
+.. code::
+
+    usage: locker [-h] [--verbose [VERBOSE]] [--version [VERSION]]
+                  [--delete-dont-ask [DELETE_DONT_ASK]]
+                  [--dont-copy-on-create [DONT_COPY_ON_CREATE]] [--file FILE]
+                  [--project PROJECT] [--restart [RESTART]]
+                  [--no-ports [NO_PORTS]] [--no-links [NO_LINKS]]
+                  [{start,stop,rm,create,status,ports,rmports,links,rmlinks}]
+                  [containers [containers ...]]
 
     Manage LXC containers.
 
@@ -172,13 +226,19 @@ locker's help::
 
 About the commands:
 
-- create: Create new containers based on templates or as clones. The container's "template" subtree in the YAML configuration is provided as the template's arguments.
+- create: Create new containers based on templates or as clones. The container's
+  "template" subtree in the YAML configuration is provided as the template's
+  arguments.
 - start: Start the container and add port, i.e., netfilter rules on success.
 - stop: Stop the container and remove port, i.e., netfilter rules on success.
-- ports: Add port, i.e., netfilter rules. Automatically done when using start command.
-- rmport: Remove port i.e., netfilter rules. Automatically done when using stop command.
+- ports: Add port, i.e., netfilter rules. Automatically done when using start
+  command.
+- rmport: Remove port i.e., netfilter rules. Automatically done when using stop
+  command.
 - status: Show container status.
-- links: Add/updates links in container. Automatically done when using start command. Subsequent calls will update the links and remove stale entries of stopped containers.
+- links: Add/updates links in container. Automatically done when using start
+  command. Subsequent calls will update the links and remove stale entries of
+  stopped containers.
 - rmlinks: Removes all links from container.
 
 Limitations & Issues
@@ -208,27 +268,39 @@ To-Dos / Feature Wish List
 - Export and import of containers, optionally including the bind-mounted data
 - Support IPv6 addresses and netfilter rules
 - Support different container paths
-- Support setting parameters in the container's config (e.g. /var/lib/lxc/container/contig) via the YAML file
-- Evaluate the order in which to create new cloned containers to handle dependency problems (containers are currently created in alphabetical order)
-- Support execution of commands inside the container after creation, e.g., to install the puppet agent
+- Support setting parameters in the container's config (e.g.
+  /var/lib/lxc/container/contig) via the YAML file
+- Evaluate the order in which to create new cloned containers to handle
+  dependency problems (containers are currently created in alphabetical order)
+- Support execution of commands inside the container after creation, e.g., to
+  install the puppet agent
 - Add Debian package meta-data
 - Add and use custom bridge device (e.g. locker0)
 
   - Prevent communication between containers in the default configuration
-  - Add netfilter rules for inter-container commmunication when "links" are defined
+  - Add netfilter rules for inter-container commmunication when "links" are
+    defined
 
-- Setting environment variables in linked containers?! Not required in my use cases. Name resolution is more important as the initial configuration of applications is realized by a configuration management system.
-- The code should make more use of try-except as this is more "pythonic": "Ask forgiveness, not permission"
+- Setting environment variables in linked containers?! Not required in my use
+  cases. Name resolution is more important as the initial configuration of
+  applications is realized by a configuration management system.
+- The code should make more use of try-except as this is more "pythonic": "Ask
+  forgiveness, not permission"
 - Use string templates, see PEP 3101 and PEP 3101
-- Improve regular expressions and clarify what is actually a valid container identifier/name.
+- Improve regular expressions and clarify what is actually a valid container
+  identifier/name.
 - Use @property in Container class
+- Link backwards, i.e., add name + fqdn of the linking container to target
+  container. This may be beneficial, e.g., when database logs shall contain the
+  hostname.
 
 Words of Warning
 ================
 
 - Use at your own risk
 - May destroy your data
-- Many errors and misconfigurations are not caught yet and may result in undefined states
+- Many errors and misconfigurations are not caught yet and may result in
+  undefined states
 - Test in an expendable virtual machine first!
 - Compatibility may be broken in future versions
 
