@@ -8,13 +8,99 @@ import logging
 import iptc
 from colorama import Fore
 import prettytable
-from locker.container import Container
+import locker
+from locker.container import Container, CommandFailed
+from locker.util import break_and_add_color, rule_to_str, rules_to_str, regex_project_name
 import sys
+import re
+from functools import wraps
+
+def container_list(func):
+    ''' Set value of "containers" parameter
+
+    This decorator is for methods that have a named / keyword parameter named
+    "containers". The parameter will be set to all containers if missing or
+    set to None.
+    All methods using this decorator should force the use of the keyword for
+    "containers" to avoid errors due to duplicated values for the parameter.
+    '''
+    @wraps(func)
+    def func_wrapper(*args, **kwargs):
+        if 'containers' not in kwargs or not kwargs['containers']:
+            kwargs['containers'] = args[0].containers
+        return func(*args, **kwargs)
+    return func_wrapper
+
+def needs_locker_table(func):
+    ''' Ensures that the locker table exists
+    '''
+    @wraps(func)
+    def func_wrapper(*args, **kwargs):
+        try:
+            Project.prepare_locker_table()
+        except iptc.IPTCError:
+            raise
+        return func(*args, **kwargs)
+    return func_wrapper
 
 class Project(object):
     '''
     Abtracts a group of containers
     '''
+
+    @property
+    def args(self):
+        return self._args
+
+    @args.setter
+    def args(self, value):
+        if not isinstance(value, dict):
+            raise TypeError('Invalid type for args: %s' % type(value))
+        self._args = value
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        if not re.match(regex_project_name, value):
+            raise ValueError('Invalid value for project name: %s' % value)
+        self._name = value
+
+    @property
+    def containers(self):
+        return self._containers
+
+    @containers.setter
+    def containers(self, value):
+        if not isinstance(value, list):
+            raise TypeError('Invalid type for container: %s' % type(value))
+        if len([x for x in value if not isinstance(x, locker.Container)]):
+            raise TypeError('List contains invalid type: [%s]' % ','.join([type(x) for x in value]))
+        self._containers = value
+
+    @property
+    def all_containers(self):
+        return self._all_containers
+
+    @all_containers.setter
+    def all_containers(self, value):
+        if not isinstance(value, list):
+            raise TypeError('Invalid type for all_containers: %s' % type(value))
+        if len([x for x in value if not isinstance(x, locker.Container)]):
+            raise TypeError('List contains invalid type: [%s]' % ','.join([type(x) for x in value]))
+        self._all_containers = value
+
+    @property
+    def yml(self):
+        return self._yml
+
+    @yml.setter
+    def yml(self, value):
+        if not isinstance(value, dict):
+            raise TypeError('Invalid type for yml: %s' % type(value))
+        self._yml = value
 
     def __init__(self, yml, args):
         ''' Initialize a new project instance
@@ -43,17 +129,12 @@ class Project(object):
                 return con
         return None
 
-    def status(self, containers=None):
+    @container_list
+    def status(self, *, containers=None):
         ''' Show status of all project specific containers
 
         :param containers: List of containers or None (== all containers)
         '''
-        def break_and_add_color(vals):
-            return '\n'.join(['%s%s%s' % (container.color, v, Fore.RESET) for v in vals])
-
-        if containers == None:
-            containers = self.containers
-
         header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports', 'Links']
         table = prettytable.PrettyTable(header)
         table.align = 'l'
@@ -63,82 +144,91 @@ class Project(object):
             defined = container.defined
             name = container.name
             state = container.state
-            fqdn = '' if 'fqdn' not in container.yml else container.yml['fqdn']
-            ips = '-'
-            if container.running:
-                ips = ','.join(container.get_ips())
+            fqdn = container.yml.get('fqdn', '')
+            ips = container.get_ips()
+            if ips:
+                ips = ','.join(ips)
             dnat_rules = container.get_netfiler_rules()
-            ports = ['%s:%s->%s/%s' % (dip.split('/')[0], dport, to_port, proto) for proto, (dip, dport), (to_ip, to_port) in dnat_rules]
-            ports = break_and_add_color(ports)
-            linked_to = break_and_add_color(container.linked_to())
-            table.add_row(['%s%s%s' % (container.color, x, Fore.RESET) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
+            ports = rules_to_str(dnat_rules)
+            reset_color = Fore.RESET if container.color else ''
+            ports = break_and_add_color(container, ports)
+            linked_to = break_and_add_color(container, container.linked_to())
+            table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
         sys.stdout.write(table.get_string()+'\n')
 
-    def start(self, containers=None):
+    @container_list
+    def start(self, *, containers=None):
         ''' Start all or selected containers
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
         '''
-        if containers == None:
-            containers = self.containers
-
-        result = True
         for container in containers:
-            cresult = container.start()
-            if cresult and not self.args['no_ports']:
-                cresult = self.ports([container])
-            result &= cresult
-        if not self.args['no_links']:
-            self.links(self.all_containers, auto_update=True)
-        return result
+            try:
+                container.start()
+                if not 'not_ports' in self.args or not self.args['no_ports']:
+                    self.ports(containers=[container])
+            except CommandFailed:
+                pass
+        if not 'no_links' in self.args or not self.args['no_links']:
+            self.links(containers=self.all_containers, auto_update=True)
 
+    @container_list
+    def reboot(self, *, containers=None):
+        ''' Reboot all or selected containers
+
+        This method runs the stop command and then the start command to ensure
+        that all netfilter rules and links are removed and re-added.
+
+        :param containers: List of containers or None (== all containers)
+        '''
+        for container in containers:
+            try:
+                self.stop(containers=[container])
+                self.start(containers=[container])
+            except CommandFailed:
+                pass
+
+    @container_list
     def stop(self, containers=None):
         ''' Stop all or selected containers
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
         '''
-        if containers == None:
-            containers = self.containers
-
-        result = True
         for container in containers:
-            cresult = container.stop()
-            if cresult and not self.args['no_ports']:
-                cresult = self.rmports([container])
-            result &= cresult
-        if not self.args['no_links']:
+            try:
+                container.stop()
+                if not 'no_ports' in self.args or not self.args['no_ports']:
+                    self.rmports(containers=[container])
+            except CommandFailed:
+                pass
+        if not 'no_links' in self.args or not self.args['no_links']:
             self.links(containers=self.all_containers, auto_update=True)
-        return result
 
-    def create(self, containers=None):
+    @container_list
+    def create(self, *, containers=None):
         ''' Create all or selected containers
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
         '''
-        if containers == None:
-            containers = self.containers
-
-        result = True
         for container in containers:
-            result &= container.create()
-        return result
+            try:
+                container.create()
+            except CommandFailed:
+                pass
+            except ValueError:
+                pass
 
-    def remove(self, containers=None):
+    @container_list
+    def remove(self, *, containers=None):
         ''' Destroy all or selected containers
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
         '''
-        if containers == None:
-            containers = self.containers
-
-        result = True
         for container in containers:
-            result &= container.remove()
-        return result
+            try:
+                container.remove()
+            except CommandFailed:
+                pass
 
     @staticmethod
     def prepare_locker_table():
@@ -163,6 +253,7 @@ class Project(object):
             except iptc.IPTCError:
                 logging.error('Was not able to create LOCKER chain in NAT table, cannot add rules')
                 raise
+        assert 'LOCKER' in [c.name for c in nat_table.chains]
 
         nat_prerouting_chain = iptc.Chain(nat_table, 'PREROUTING')
         for rule in nat_prerouting_chain.rules:
@@ -179,80 +270,66 @@ class Project(object):
         comment_match.comment = 'LOCKER'
         nat_prerouting_chain.insert_rule(jump_to_locker_rule)
 
-    def ports(self, containers=None):
+    @needs_locker_table
+    @container_list
+    def ports(self, *, containers=None):
         ''' Add firewall rules to enable port forwarding
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
         '''
-        if containers == None:
-            containers = self.containers
-
-        try:
-            Project.prepare_locker_table()
-        except iptc.IPTCError:
-            return False
-
-        result = True
         for container in containers:
-            result &= container.ports()
-        return result
+            try:
+                container.ports()
+            except CommandFailed:
+                pass
 
-    def rmports(self, containers=None):
+    @container_list
+    def rmports(self, *, containers=None):
         ''' Remove firewall rules that enable port forwarding
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
         '''
-        if containers == None:
-            containers = self.containers
-
+        # TODO Move the autocommit disabling + enabling to Container
         filter_table = iptc.Table(iptc.Table.FILTER)
         filter_table.autocommit = False
 
         nat_table = iptc.Table(iptc.Table.NAT)
         nat_table.autocommit = False
 
-        # TODO try catch should be moved to Container.rmports()
-        try:
-            logging.debug('Removing netfilter rules')
-            for container in containers:
+        logging.debug('Removing netfilter rules')
+        for container in containers:
+            try:
                 container.rmports()
-        except iptc.IPTCError:
-            logging.warn('An arror occured during the deletion of rules for \"%s\", check for relics', container.name)
-        finally:
-            filter_table.commit()
-            filter_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
-            filter_table.autocommit = True
-            nat_table.commit()
-            nat_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
-            nat_table.autocommit = True
-        return True
+            except CommandFailed:
+                pass
 
-    def links(self, containers=None, auto_update=False):
+        filter_table.commit()
+        filter_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
+        filter_table.autocommit = True
+        nat_table.commit()
+        nat_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
+        nat_table.autocommit = True
+
+    @container_list
+    def links(self, *, containers=None, auto_update=False):
         ''' Add links in all or selected containers
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
         '''
-        if containers == None:
-            containers = self.containers
-
-        result = True
         for container in containers:
-            result &= container.links(auto_update)
-        return result
+            try:
+                container.links(auto_update)
+            except CommandFailed:
+                pass
 
-    def rmlinks(self, containers=None):
+    @container_list
+    def rmlinks(self, *, containers=None):
         ''' Remove links in all or selected containers
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
         '''
-        if containers == None:
-            containers = self.containers
-
-        result = True
         for container in containers:
-            result &= container.rmlinks()
-        return result
+            try:
+                container.rmlinks()
+            except CommandFailed:
+                pass

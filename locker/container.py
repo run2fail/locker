@@ -8,9 +8,60 @@ from colorama import Fore
 import iptc
 import re
 import time
-import locker.util
 import os
 import shutil
+from locker.util import rule_to_str, regex_container_name, regex_link
+import locker.project
+from functools import wraps
+
+class CommandFailed(RuntimeError):
+    def __init__(self, arg):
+        self.msg = arg
+
+    def __str__(self):
+        return repr(self.msg)
+
+def return_if_not_defined(func):
+    @wraps(func)
+    def func_wrapper(*args, **kwargs):
+        if not args[0].defined:
+            args[0].logger.debug('Container is not yet defined')
+            return
+        else:
+            return func(*args, **kwargs)
+    return func_wrapper
+
+def return_if_defined(func):
+    @wraps(func)
+    def func_wrapper(*args, **kwargs):
+        if args[0].defined:
+            args[0].logger.debug('Container is defined')
+            return
+        else:
+            return func(*args, **kwargs)
+    return func_wrapper
+
+def return_if_not_running(func):
+    @wraps(func)
+    def func_wrapper(*args, **kwargs):
+        if not args[0].running:
+            args[0].logger.debug('Container is stopped')
+            return
+        else:
+            return func(*args, **kwargs)
+    return func_wrapper
+
+def needs_locker_table(func):
+    ''' Ensures that the locker table exists
+    '''
+    @wraps(func)
+    def func_wrapper(*args, **kwargs):
+        try:
+            args[0].project.prepare_locker_table()
+        except iptc.IPTCError:
+            raise
+        return func(*args, **kwargs)
+    return func_wrapper
 
 class Container(lxc.Container):
     '''
@@ -29,8 +80,7 @@ class Container(lxc.Container):
         Generate a list of container objects
 
         :param yml: YAML project configuration
-
-        :returns:   List of container objects
+        :returns:   Tuple: List of selected containers, List of all containers
         '''
         containers = list()
         all_containers = list()
@@ -40,7 +90,10 @@ class Container(lxc.Container):
             pname = '%s_%s' % (project.name, name)
             if pname not in lxc.list_containers():
                 logging.debug('Container \"%s\" does not exist yet or is not accessible as this user.', pname)
-            color = colors[num % len(colors)]
+            if 'no_color' in project.args and project.args['no_color']:
+                color = ''
+            else:
+                color = colors[num % len(colors)]
             container = Container(pname, yml[name], project, color)
 
             all_containers.append(container)
@@ -48,175 +101,213 @@ class Container(lxc.Container):
                 logging.debug('%s was not selected', pname)
                 continue
             containers.append(container)
-        logging.debug('Containers: %s', [con.name for con in containers])
+        logging.debug('Selected containers: %s', [con.name for con in containers])
         return (containers, all_containers)
 
+    def __init__(self, name, yml, project, color='', config_path=None):
+        ''' Init instance with custom property values and init base class
+        '''
+        if not re.match(regex_container_name, name):
+            raise ValueError('Invalid value for container name: %s' % name)
+        self.yml = yml
+        self.project = project
+        self.color = color
+        self.logger = logging.getLogger(name)
+        self.logger.propagate = False
+        reset_color = Fore.RESET
+        reset_color = Fore.RESET if self.color else ''
+        formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + color + '[' + name + '] %(message)s' + reset_color)
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+        lxc.Container.__init__(self, name, config_path)
+
+    @return_if_not_defined
+    @return_if_not_running
     def get_ips(self, retries=10):
         '''
         Get IPs of the container
 
         :param retries: Try a again this many times if IPs are not available yet
-        :returns: List of IPs
+        :returns: List of IPs or None if the container is not defined or stopped
         '''
         ips = lxc.Container.get_ips(self)
         while len(ips) == 0 and self.running and retries > 0:
-            # TODO Should implement a timeout here
             self.logger.debug('Waiting to acquire an IP address')
             time.sleep(1)
             ips = lxc.Container.get_ips(self)
             retries -= 1
         return ips
 
-    def __init__(self, name, yml, project, color=Fore.RESET, config_path=None):
-        self.yml = yml
-        self.project = project
-        self.color = color
-        self.logger = logging.getLogger(name)
-        self.logger.propagate = False
-        formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + color + '[' + name + '] %(message)s' + Fore.RESET)
-        handler = logging.StreamHandler()
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
-        lxc.Container.__init__(self, name, config_path)
+    @property
+    def project(self):
+        return self._project
 
+    @project.setter
+    def project(self, value):
+        if not isinstance(value, locker.Project):
+            raise TypeError('Invalid type for property project: %s, required type = %s' % (type(value), type(locker.Project)))
+        self._project = value
+
+    @property
+    def color(self):
+        return self._color
+
+    @color.setter
+    def color(self, value):
+        if value not in [Fore.BLACK, Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN, Fore.WHITE, '']:
+            raise ValueError('Invalid color: %s' % value)
+        self._color = value
+
+    @property
+    def yml(self):
+        return self._yml
+
+    @yml.setter
+    def yml(self, value):
+        if not isinstance(value, dict):
+            raise TypeError('Invalid type for value: %s' % type(value))
+        self._yml = value
+
+    @property
+    def logger(self):
+        return self._logger
+
+    @logger.setter
+    def logger(self, value):
+        if not isinstance(value, logging.Logger):
+            raise TypeError('Invalid type for property logger: %s, required type = %s' % (type(value), type(logging.Logger)))
+        self._logger = value
+
+    @return_if_not_defined
     def start(self):
         '''
         Start container
 
-        :returns: False on any error, else True
+        :raises: CommandFailed
         '''
-        if not self.defined:
-            self.logger.critical('Container is not yet defined')
-            return False
         if self.running:
             self.logger.debug('Container is already running')
-            if not self.project.args['restart']:
-                return True
+            if not 'restart' in self.project.args or not self.project.args['restart']:
+                self.logger.debug('Container will not be restarted')
+                return
             self.logger.info('Restarting container')
-            if not self.stop():
-                self.logger.critical('Was not able to stop container - still running!')
-                return False
+            try:
+                self.stop()
+            except CommandFailed:
+                raise
         self._generate_fstab()
         self._set_fqdn_hook()
         self.logger.info('Starting container')
         lxc.Container.start(self)
         if not self.running:
             self.logger.critical('Could not start container')
-            return False
-        return True
+            raise CommandFailed('Could not start container')
 
+    @return_if_not_defined
+    @return_if_not_running
     def stop(self):
         '''
         Stop container
 
-        :returns: False on any error, else True
+        :raises: CommandFailed
         '''
-        if not self.defined:
-            self.logger.debug('Container is not yet defined')
-            return True
-        if not self.running:
-            self.logger.debug('Container is already stopped')
-            return True
         self.logger.info('Stopping container')
+        self.rmlinks()
         lxc.Container.stop(self)
         if self.running:
             self.logger.critical('Could not stop container')
-            return False
-        return True
+            raise CommandFailed('Could not stop container')
 
+    @return_if_defined
     def create(self):
         '''
-        Create container
+        Create container based on template or as clone
 
-        :returns: False on any error, else True
+        :raises: CommandFailed
         '''
-        def create_from_template():
+
+        def _create_from_template(self):
             ''' Create container from template specified in YAML configuration
+
+            The "template" subtree in the YAML configuration will be provided as
+            arguments to the template.
             '''
-            self.logger.info('Creating container from template \"%s\"', self.yml['template']['name'])
+            self.logger.info('Creating container from template: %s', self.yml['template']['name'])
             flags = lxc.LXC_CREATE_QUIET
             if self.logger.level == logging.DEBUG:
                 flags = 0
-            self.create(self.yml['template']['name'], flags, args=self.yml['template'])
+            lxc.Container.create(self, self.yml['template']['name'], flags, args=self.yml['template'])
             if not self.defined:
-                self.logger.info('Creation from template \"%s\" did not succeed', self.yml['template']['name'])
-                return False
+                self.logger.info('Creation failed from template: %s', self.yml['template']['name'])
+                raise CommandFailed('Creation failed from template: %s' % self.yml['template']['name'])
             self._copy_mounted()
-            return True
 
-        def clone_from_existing():
+        def _clone_from_existing(self):
             ''' Clone container from an existing container
+
+            This method is a little "awkward" because this container (self) will
+            create a new, temp. container instance of the container to clone
+            from which then creates the clone. Hence the clone and this instance
+            (self) are not the same. The Python lxc bindings allow to create
+            multiple lxc.Container instances for the same lxc container.
+            As the clone is only of type lxc.Container and not locker.Container,
+            we will use this container instance (self) for further actions.
             '''
             clone = self.yml['clone']
             if clone not in lxc.list_containers():
-                self.logger.error('Cannot clone, container \"%s\" does not exist or is not accessible', clone)
-                return False
-            origin = Container(clone)
-            self.logger.info('Cloning from \"%s\"', origin.name)
-            cloned = origin.clone(self)
+                self.logger.error('Cannot clone, container does not exist or is not accessible: %s', clone)
+                raise ValueError('Cannot clone, container does not exist or is not accessible: %s' % clone)
+            origin = lxc.Container(clone)
+            self.logger.info('Cloning from: %s', origin.name)
+            cloned = origin.clone(self.name)
             if not cloned or not cloned.defined:
-                self.logger.info('Cloning from \"%s\" did not succeed', origin.name)
-                return False
-            cloned._copy_mounted()
-            return True
+                self.logger.error('Cloning failed from: %s', origin.name)
+                raise CommandFailed('Cloning failed from: %s' % origin.name)
+            self._copy_mounted()
 
-        if self.defined:
-            self.logger.debug('Container is already defined')
-            return True
-        if 'template' in self.yml and 'clone' in self.yml:
-            self.logger.error('\"template\" and \"clone\" may not be used in the same configuration')
-            return False
+        if len([x for x in self.yml if x in ['template', 'clone']]) != 1:
+            self.logger.error('You must provide either \"template\" or \"clone\" in container configuration')
+            raise ValueError('You must provide either \"template\" or \"clone\" in container configuration')
 
         if 'template' in self.yml:
-            return create_from_template()
-        elif 'clone' in self.yml:
-            return clone_from_existing()
+            _create_from_template(self)
         else:
-            self.logger.error('Neither \"template\" nor \"clone\" was specified in the configuration')
-            return False
+            _clone_from_existing(self)
 
-    def clone(self, proxy):
-        '''
-        Clone this container
-
-        Create a clone of this container and copy extended attributes
-        to the clone.
-
-        :returns: Container clone of False
-        '''
-        cloned = lxc.Container.clone(self, proxy.name)
-        if not cloned.defined:
-            self.logger.info('Cloning from \"%s\" did not succeed', self.name)
-            return False
-        cloned.yml = proxy.yml
-        cloned.project = proxy.project
-        cloned.color = proxy.color
-        cloned.logger = proxy.logger
-        return cloned
-
+    @return_if_not_defined
     def remove(self):
         '''
         Destroy container
 
-        :returns: False on any error, else True
+        :raises: CommandFailed
         '''
-        if not self.defined:
-            self.logger.debug('Container has not been created yet')
-            return False
-        if not self.project.args['delete_dont_ask']:
+        if not 'delete_dont_ask' in self.project.args or not self.project.args['delete_dont_ask']:
+            # TODO Implement a timeout here?!?
             input_var = input("Delete %s? [y/N]: " % (self.name))
             if input_var not in ['y', 'Y']:
                 self.logger.info('Skipping deletion')
-                return True
-        if not self.stop():
-            return False
-        if not lxc.Container.destroy(self):
-            self.logger.warn('Container was not deleted')
-            return False
-        return True
+                return
+        try:
+            try:
+                self.stop()
+            except CommandFailed:
+                raise
+            if not lxc.Container.destroy(self):
+                self.logger.error('Container was not deleted')
+                raise CommandFailed('Container was not deleted')
+        except CommandFailed:
+            raise
 
+    @needs_locker_table
     def rmports(self):
-        ''' Remove netfilter rules
+        '''
+        Remove netfilter rules
+
+        Don't call this method directy but via the particular project instance.
+        iptc produces strange errors when chains are modified too fast. Hence the
+        Project.rmports() disables the auto_commit while changes are made by the
+        container instances.
         '''
         if self.running:
             self.logger.warn('Container is still running, services will not be available anymore')
@@ -226,22 +317,55 @@ class Container(lxc.Container):
         for rule in locker_nat_chain.rules:
             for match in rule.matches:
                 if match.name == 'comment' and match.comment == self.name:
-                    self.logger.debug('Removing DNAT %s rule', rule.protocol)
-                    locker_nat_chain.delete_rule(rule)
+                    self.logger.debug('Removing LOCKER rule: %s', rule_to_str(rule))
+                    try:
+                        locker_nat_chain.delete_rule(rule)
+                    except iptc.IPTCError:
+                        self.logger.warn('Could not remove rule from LOCKER table: %s', rule_to_str(rule))
+                        break
 
         filter_table = iptc.Table(iptc.Table.FILTER)
         filter_forward = iptc.Chain(filter_table, 'FORWARD')
         for rule in filter_forward.rules:
             for match in rule.matches:
                 if match.name == 'comment' and match.comment == self.name:
-                    self.logger.debug('Removing FORWARD %s rule', rule.protocol)
-                    filter_forward.delete_rule(rule)
+                    self.logger.debug('Removing FORWARD rule: %s', rule_to_str(rule))
+                    try:
+                        filter_forward.delete_rule(rule)
+                    except iptc.IPTCError:
+                        self.logger.warn('Could not remove rule from FORWARD table: %s', rule_to_str(rule))
+                        break
 
+    def _has_netfilter_rules(self):
+        ''' Check if there are any netfilter rules for this container
+
+        Netfilter rules are matched by the comment - if it exists.
+
+        :returns: True if any rule found, else False
+        '''
+        self.logger.debug('Checking if container has already rules')
+        locker_nat_chain = iptc.Chain(iptc.Table(iptc.Table.NAT), 'LOCKER')
+        filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
+        for rule in locker_nat_chain.rules:
+            for match in rule.matches:
+                if match.name == 'comment' and match.comment == self.name:
+                    self.logger.info('Found rule(-s) in LOCKER chain')
+                    return True
+        for rule in filter_forward.rules:
+            for match in rule.matches:
+                if match.name == 'comment' and match.comment == self.name:
+                    self.logger.info('Found rule(-s) in FORWARD chain')
+                    return True
+        return False
+
+    @return_if_not_defined
+    @return_if_not_running
+    @needs_locker_table
     def ports(self):
         ''' Add firewall rules to enable port forwarding
 
         :param containers: List of containers or None (== all containers)
-        :returns: False on any error, else True
+        :raises:
         '''
         def add_dnat_rule(container_ip, port_conf, locker_nat_chain):
             ''' Add rule to the LOCKER chain in the NAT table
@@ -274,50 +398,35 @@ class Container(lxc.Container):
             forward_rule.create_target('ACCEPT')
             filter_forward.insert_rule(forward_rule)
 
-        def container_has_rules(locker_nat_chain, filter_forward):
-            ''' Check if there are any netfilter rules for this container
-            '''
-            self.logger.debug('Checking if container has already rules')
-            for rule in locker_nat_chain.rules:
-                for match in rule.matches:
-                    if match.name == 'comment' and match.comment == self.name:
-                        self.logger.info('Found rule(-s) in LOCKER chain: remove with command \"rmports\"')
-                        return True
-            for rule in filter_forward.rules:
-                for match in rule.matches:
-                    if match.name == 'comment' and match.comment == self.name:
-                        self.logger.info('Found rule(-s) in FORWARD chain: remove with command \"rmports\"')
-                        return True
-            return False
-
-        def parse_port_conf(fwport):
+        def parse_port_conf(self, fwport):
             ''' Split port forward directive in parts
+
+            :raises: ValueError
             '''
             regex = re.compile(r'^(?:(?P<host_ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):)?(?P<host_port>\d{1,5}):(?P<container_port>\d{1,5})(?:/(?:(?P<proto_udp>udp)|(?P<proto_tcp>tcp)))?$')
             match = regex.match(fwport)
             if not match:
                 self.logger.error('Invalid port forwarding directive: %s', fwport)
-                return None
+                raise ValueError('Invalid port forwarding directive: %s', fwport)
             mdict = match.groupdict()
             mdict['proto'] = mdict['proto_udp'] or 'tcp'
             return mdict
 
         if not 'ports' in self.yml:
             self.logger.debug('No port forwarding rules')
-            return True
-        if not self.running:
-            self.logger.info('Container is not running, skipping adding ports rules')
-            return True
+            return
         self.logger.debug('Adding port forwarding rules')
 
         locker_nat_chain = iptc.Chain(iptc.Table(iptc.Table.NAT), 'LOCKER')
         filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
-        if container_has_rules(locker_nat_chain, filter_forward):
-            return True
+        if self._has_netfilter_rules():
+            self.logger.warn('Not adding any netfilter rules')
+            return
 
         for fwport in self.yml['ports']:
-            port_conf = parse_port_conf(fwport)
-            if not port_conf:
+            try:
+                port_conf = parse_port_conf(self, fwport)
+            except ValueError:
                 continue
             ips = self.get_ips()
             for container_ip in ips:
@@ -326,13 +435,13 @@ class Container(lxc.Container):
                     continue
                 add_dnat_rule(container_ip, port_conf, locker_nat_chain)
                 add_forward_rule(container_ip, port_conf, filter_forward)
-        return True
 
     def _set_fqdn_hook(self):
         ''' Set FQDN hook script to set the FQDN
 
         This works when the container and when /etc is a bind-mount as long as
-        / and /locker are not covered by another mount.
+        / and /locker are not covered by another mount. The hook script must be
+        inside the containers namespace.
         '''
         if 'fqdn' not in self.yml:
             self.logger.debug('No FQDN in configuration')
@@ -383,6 +492,7 @@ echo "%s" > "%s/etc/hostname"
         with open(fstab_file, 'w+') as fstab:
             if 'volumes' in self.yml:
                 for volume in self.yml['volumes']:
+                    # TODO Check with regex
                     remote, mountpt = [s.strip() for s in volume.split(':')]
                     remote = locker.util.expand_vars(remote, self)
                     if mountpt.startswith('/'):
@@ -393,6 +503,9 @@ echo "%s" > "%s/etc/hostname"
     def get_netfiler_rules(self):
         '''
         Get port forwarding netfilter rules of the container
+
+        This method only searches the LOCKER chain in the NAT table and ignores
+        the FORWARD chain in the FILTER table!
         '''
         nat_table = iptc.Table(iptc.Table.NAT)
         locker_nat_chain = iptc.Chain(nat_table, 'LOCKER')
@@ -477,47 +590,39 @@ echo "%s" > "%s/etc/hostname"
                     self.logger.warn('Could not create \"%s\" on host (\"%s\" does not exist inside the container)', outside, inside)
                     continue
 
+    @return_if_not_defined
     def links(self, auto_update=False):
         '''
         Link container to another container
-
-        :returns: False on any error, else True
         '''
 
-        def link_container(name, alias=None, auto_update=False):
+        def link_container(self, name, alias=None, auto_update=False):
             self.logger.debug('Linking with %s', name)
             container = self.project.get_container(name)
             if not container:
                 self.logger.error('Cannot link with unavailable container: %s', name)
-                return False
+                return
             if not container.running:
-                # Suppress message when it's clear that the container may have been stopped
+                # Suppress message when it's clear that the particuar container may have been stopped
                 if auto_update:
                     self.logger.debug('Cannot link with stopped container: %s', name)
                 else:
                     self.logger.warning('Cannot link with stopped container: %s', name)
-                return False
+                return
             ips = container.get_ips()
             aliases = list()
             if 'fqdn' in container.yml:
                 aliases.append(container.yml['fqdn'])
             if alias:
                 aliases.append(alias)
-            entries = list()
-            for ip in ips:
-                entries.append((ip, name, aliases))
+            entries = [(ip, name, aliases) for ip in ips]
             self._update_etc_hosts(entries)
-
 
         self.logger.debug('Updating links')
         if not 'links' in self.yml:
             self.logger.debug('No links defined')
-            return True
-        # TODO What are valid container names/identifiers?!? the documentation
-        # only mentions "alphanumeric string" but, e.g., underscores are also ok.
-        # TODO Check should be moved to project
-        # TODO Add support for multiple aliases. Alt: Change YAML conf. format.
-        link_regex = re.compile(r'^(?P<name>[\d\w_-]+)(?::(?P<alias>[\d\w_-]*))?$')
+            return
+        link_regex = re.compile(regex_link)
         for link in self.yml['links']:
             match = link_regex.match(link)
             if not match:
@@ -525,11 +630,8 @@ echo "%s" > "%s/etc/hostname"
                 continue
             group_dict = match.groupdict()
             name = group_dict['name']
-            alias = None
-            if 'alias' in group_dict:
-                alias = group_dict['alias']
-            link_container(name, alias, auto_update)
-        return True
+            alias = group_dict.get('alias', None)
+            link_container(self, name, alias, auto_update)
 
     def _update_etc_hosts(self, entries):
         '''
@@ -544,8 +646,13 @@ echo "%s" > "%s/etc/hostname"
         rootfs = self.get_config_item('lxc.rootfs')
         assert len(rootfs)
         etc_hosts = '%s/etc/hosts' % (rootfs)
-        with open(etc_hosts, 'r') as etc_hosts_rfile:
-            lines = etc_hosts_rfile.readlines()
+        try:
+            with open(etc_hosts, 'r') as etc_hosts_rfile:
+                lines = etc_hosts_rfile.readlines()
+        except FileNotFoundError:
+            self.logger.warn('/etc/hosts does not exists inside rootfs')
+            return
+        # TODO Use better regex
         regex = re.compile('^.* # %s_.+$' % self.project.name)
         with open(etc_hosts, 'w+') as etc_hosts_wfile:
             for line in lines:
@@ -563,7 +670,6 @@ echo "%s" > "%s/etc/hostname"
         '''
         self.logger.debug('Removing links')
         self._update_etc_hosts([])
-        return True
 
     def linked_to(self):
         '''
@@ -578,8 +684,13 @@ echo "%s" > "%s/etc/hostname"
             return linked
         assert len(rootfs)
         etc_hosts = '%s/etc/hosts' % (rootfs)
-        with open(etc_hosts, 'r') as etc_hosts_rfile:
-            lines = etc_hosts_rfile.readlines()
+        try:
+            with open(etc_hosts, 'r') as etc_hosts_rfile:
+                lines = etc_hosts_rfile.readlines()
+        except FileNotFoundError:
+            return linked
+
+        # TODO Use a better regex
         regex = re.compile('^.* # (%s_.+)$' % self.project.name)
         for line in lines:
             match = regex.match(line)

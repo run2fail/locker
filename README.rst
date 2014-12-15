@@ -30,17 +30,18 @@ Features
 Locker currently supports the following features:
 
 - Define groups of containers in a YAML file similar to fig's syntax
-- Create, start, stop, and remove groups or selections of containers
+- Create, start, stop, and remove groups or selections of containers defined in
+  the particular project
 - Show the status of containers in your project
 - Create containers as clones or based on LXC templates
-- Create an fstab file to enable bind mounted directories from the host into the
+- Create an ``fstab`` file to enable bind mounted directories from the host into the
   container(-s)
 - Optionally, bind-mounted folders may be moved from the container to the host
   after container creation, so that you do not mount empty folders within your
   container (needs more testing)
 - Add or remove port forwarding netfilter rules
-- Multi-colored output
-- (Simple) Linking of containers by adding their hostnames to /etc/hosts
+- Multi-colored output (can be optionally disabled)
+- (Simple) Linking of containers by adding their hostnames to ``/etc/hosts``
 
 Challenges implementing Locker
 ------------------------------
@@ -58,7 +59,7 @@ must implement features where `fig <http://fig.sh>`_ can simply rely on
 - In general, the lxc container and network configuration requires manual
   work/modifications, e.g., when containers shall get static IP addresses.
 - For some users it may be undesirable that containers are actually NAT-ted
-  behind the default bridge device and that the can communicate with each other
+  behind the default bridge device and that they can communicate with each other
   at all. This can be changed but, again, there is no convenient frontend or
   command line tool.
 
@@ -115,19 +116,20 @@ An example project definition in YAML:
         links:
         - "db"
 
-You can use some simple placeholders like $name or $project in your volume
+Volumes define bind-mounts of directories on the host system into the container.
+You can use some simple placeholders like ``$name`` or ``$project`` in your volume
 definitions.
 
-Different formats of port forwarding rules are supported. If the protocol is
-not specified, the default, i.e. tcp, will be used to configure netfilter rules.
-The fqdn attribute enables to set the container's hostname and full qualified
-domain name (fqdn). This is realized by a lxc hook script that is run after
-the mounting has been done. Several applications rely on the fqdn, e.g., the
-puppet agent of the puppet configuration system generates and selects TLS/SSL
-certificates based on the fqdn.
+Different formats of port forwarding rules (``ports``) are supported. If the
+protocol is not specified, the default, i.e. ``tcp``, will be used to configure
+netfilter rules. The ``fqdn`` attribute enables to set the container's hostname
+and full qualified domain name (``fqdn``). This is realized by a lxc hook script
+that is run after the mounting has been done. Several applications rely on the
+``fqdn``, e.g., the puppet agent of the puppet configuration system generates
+and selects TLS/SSL certificates based on the fqdn.
 
-"links" entries will add the specified, i.e., linked container's hostname,
-optional alias, and optional fqdn to the linking container's /etc/hosts file.
+``links`` entries will add the specified, i.e., linked container's hostname,
+optional alias, and optional fqdn to the linking container's ``/etc/hosts`` file.
 
 Managing the Lifecycle
 ----------------------
@@ -189,7 +191,7 @@ locker's help output:
                   [--dont-copy-on-create [DONT_COPY_ON_CREATE]] [--file FILE]
                   [--project PROJECT] [--restart [RESTART]]
                   [--no-ports [NO_PORTS]] [--no-links [NO_LINKS]]
-                  [{start,stop,rm,create,status,ports,rmports,links,rmlinks}]
+                  [{start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks}]
                   [containers [containers ...]]
 
     Manage LXC containers.
@@ -226,83 +228,130 @@ locker's help output:
 
 About the commands:
 
-- create: Create new containers based on templates or as clones. The container's
-  "template" subtree in the YAML configuration is provided as the template's
-  arguments.
-- start: Start the container and add port, i.e., netfilter rules on success.
-- stop: Stop the container and remove port, i.e., netfilter rules on success.
-- ports: Add port, i.e., netfilter rules. Automatically done when using start
-  command.
-- rmport: Remove port i.e., netfilter rules. Automatically done when using stop
-  command.
-- status: Show container status.
-- links: Add/updates links in container. Automatically done when using start
-  command. Subsequent calls will update the links and remove stale entries of
-  stopped containers.
-- rmlinks: Removes all links from container.
+:create:
+    Create new containers based on templates or as clones. The container's
+    "template" subtree in the YAML configuration is provided as the template's
+    arguments.
+:start:
+    Start the container and run the ports command, i.e., add netfilter rules on.
+:stop:
+    Stop the container and run the rmports command, i.e., remove netfilter rules.
+:reboot:
+    As the name implies: stop the container (if running) and start it afterwards.
+:ports:
+    Add port, i.e., netfilter rules. Automatically done when using start
+    command.
+:rmport:
+    Remove port i.e., netfilter rules. Automatically done when using stop
+    command.
+:status:
+    Show container status.
+:links:
+    Add/updates links in container. Automatically done when using start command.
+    Subsequent calls will update the links and remove stale entries of
+    not properly stopped/crashed containers.
+:rmlinks:
+    Removes all links from the container.
 
 Limitations & Issues
 ====================
 
-- Must be run as root
-- Does not catch malformed YAML files and statements
-- Only directories are supported as bind mounts
-- Improve documentation and examples
-- No test cases
-- Does not support unprivileged containers
+- Must be run as root. Unprivileged containers are not yet supported.
+- Does not catch malformed YAML files
+- Only directories are supported as bind mounts (``volumes``)
+- Documentation and examples should be further extended.
 
 Requirements
 ============
 
-- Python3 and the following modules
+- Python3 and the following modules:
 
-  - lxc (official lxc bindings from the lxc project)
-  - see list of Requirements in setup.py
+  - lxc (official lxc bindings from the linux containers project)
+  - see list of requirements in setup.py
 
-- Linux Containers userspace tools and libraries
+- Linux containers userspace tools and libraries
 
 To-Dos / Feature Wish List
 ==========================
 
 - Resolve everything on the limitations & issues list :-)
-- Export and import of containers, optionally including the bind-mounted data
-- Support IPv6 addresses and netfilter rules
-- Support different container paths
-- Support setting parameters in the container's config (e.g.
-  /var/lib/lxc/container/contig) via the YAML file
-- Evaluate the order in which to create new cloned containers to handle
-  dependency problems (containers are currently created in alphabetical order)
-- Support execution of commands inside the container after creation, e.g., to
-  install the puppet agent
-- Add Debian package meta-data
-- Add and use custom bridge device (e.g. locker0)
+- Networking related:
 
-  - Prevent communication between containers in the default configuration
-  - Add netfilter rules for inter-container commmunication when "links" are
-    defined
+  - Support IPv6 addresses and netfilter rules
+  - Add and use custom bridge device (e.g. locker0)
 
-- Setting environment variables in linked containers?! Not required in my use
-  cases. Name resolution is more important as the initial configuration of
-  applications is realized by a configuration management system.
-- The code should make more use of try-except as this is more "pythonic": "Ask
-  forgiveness, not permission"
-- Use string templates, see PEP 3101 and PEP 3101
-- Improve regular expressions and clarify what is actually a valid container
-  identifier/name.
-- Use @property in Container class
-- Link backwards, i.e., add name + fqdn of the linking container to target
-  container. This may be beneficial, e.g., when database logs shall contain the
-  hostname.
+    - Prevent communication between containers in the default configuration
+    - Add netfilter rules for inter-container commmunication when "links" are
+      defined
+
+  - Link backwards, i.e., add name + fqdn of the linking container to target
+    container. This may be beneficial, e.g., when database logs shall contain
+    the hostname
+
+- Configuration related:
+
+  - Support different container paths
+  - Support setting parameters in the container's config
+    (e.g. ``/var/lib/lxc/container/config``) via the YAML configuration.
+  - Setting environment variables in linked containers?! Not required in my use
+    cases. Name resolution is more important as the initial configuration of
+    applications is realized by a configuration management system.
+  - ``lxc-create`` may use the ``download`` template to download images from the
+    `offical LXC website <http://images.linuxcontainers.org/images/>`_. Maybe
+    this can be used via the Python binding?!? For sure the YAML configuration
+    needs to be extended to support this feature.
+
+- Source code related:
+
+  - Use string templates, see PEP 3101 and PEP 3101
+  - Write real unit tests without side-effects (see next section for further
+    information)
+
+- Miscellaneous:
+
+  - Evaluate the order in which to create new cloned containers to handle
+    dependency problems (containers are currently created in alphabetical order)
+  - Add Debian package meta-data
+  - Export and import of containers, optionally including the bind-mounted data
+  - Support execution of commands inside the container after creation, e.g., to
+    install and run the `puppet <http://puppetlabs.com/puppet/what-is-puppet>`_
+    agent
+
+Test Cases
+==========
+
+.. warning:: These are not unit tests that can be run without any side effects.
+             In fact, the test cases are more akin to integration tests. Each
+             test case actually creates, starts, stops, etc. containers on the
+             test system. As these "external resources" are used, you will
+             change the state of your system.
+             Currently I refrain from writing better test cases with mocked
+             classes/methods that do not change the running system. As far as I
+             know there is no easy way to replace ``lxc.Container`` with a mock
+             where all derived classes (e.g. ``locker.Container``) also will use
+             the mocked base class.
+
+Test cases can be run easily with ``nosetest`` including a coverage analysis,
+example:
+
+.. code::
+
+    nosetests3 --with-coverage --cover-package=locker --cover-html --cover-erase
+
+Many test cases rely on the example YAML project configuration that is available
+as ``docs/locker.yml``.
+
 
 Words of Warning
 ================
 
-- Use at your own risk
-- May destroy your data
-- Many errors and misconfigurations are not caught yet and may result in
-  undefined states
-- Test in an expendable virtual machine first!
-- Compatibility may be broken in future versions
+.. warning::
+    - Use at your own risk
+    - May destroy your data
+    - Many errors and misconfigurations are not caught yet and may result in
+      undefined states
+    - Test in an expendable virtual machine first!
+    - Compatibility may be broken in future versions
 
 License
 ============

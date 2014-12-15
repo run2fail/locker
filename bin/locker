@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 '''
 Manage LXC containers like with Docker's fig
 
@@ -45,7 +47,8 @@ def parse_args():
     parser.add_argument('--restart', '-r', nargs='?', type=bool, const=True, default=False, help='Restart already running containers when using \"start\" command')
     parser.add_argument('--no-ports', '-n', nargs='?', type=bool, const=True, default=False, help='Do not add/remove netfilter rules (used with command start/stop)')
     parser.add_argument('--no-links', '-m', nargs='?', type=bool, const=True, default=False, help='Do not add/remove links (used with command start/stop)')
-    parser.add_argument('command', nargs='?', choices=['start', 'stop', 'rm', 'create', 'status', 'ports', 'rmports', 'links', 'rmlinks'], default='start', help='Commmand to run')
+    parser.add_argument('--no-color', '-o', nargs='?', type=bool, const=True, default=False, help='Do not use colored output')
+    parser.add_argument('command', nargs='?', choices=['start', 'stop', 'reboot', 'rm', 'create', 'status', 'ports', 'rmports', 'links', 'rmlinks'], default='start', help='Commmand to run')
     parser.add_argument('containers', nargs='*', default=None, help='Space separated list of containers (default: all containers)')
     args_dict = vars(parser.parse_args())
     return args_dict
@@ -82,6 +85,8 @@ def main():
         pro.start()
     elif args['command'] == 'stop':
         pro.stop()
+    elif args['command'] == 'reboot':
+        pro.reboot()
     elif args['command'] == 'create':
         pro.create()
     elif args['command'] == 'rm':
