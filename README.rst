@@ -142,6 +142,8 @@ string is of the format ``key=value``. Be careful with this feature.
 Managing the Lifecycle
 ----------------------
 
+.. image:: ./docs/demo.gif
+
 Creating, starting, stopping, removing containers and netfilter modifications
 (some output omitted):
 
@@ -280,8 +282,6 @@ Limitations & Issues
   not "seen" by most user space tools. For more information have a look at the
   `blog post <http://fabiokung.com/2014/03/13/memory-inside-linux-containers/>`_
   of Fabio Kung.
-- ``cgroup`` settings are applied but not written to the container's config
-  file when calling lxc.Container.save_config().
 
 Requirements
 ============

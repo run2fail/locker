@@ -135,6 +135,24 @@ class Project(object):
 
         :param containers: List of containers or None (== all containers)
         '''
+        def get_cgroup_item(container, key):
+            container.logger.debug('Getting cgroup item: %s', key)
+            try:
+                value = container.get_cgroup_item(key)
+            except KeyError:
+                # get_config_item() can return either
+                # - an empty string
+                # - a list with a single value
+                # - something else that I do not expect
+                value = container.get_config_item('lxc.cgroup.' + key)
+                if value == '':
+                    pass
+                elif isinstance(value, list) and len(value) == 1:
+                    value = value[0]
+                else:
+                    raise ValueError('Unexpected value for cgroup item: %s = %s' % (key, value))
+            return value
+
         if not 'extended' in self.args or not self.args['extended']:
             header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports', 'Links']
         else:
@@ -164,15 +182,20 @@ class Project(object):
             if not 'extended' in self.args or not self.args['extended']:
                 table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
             else:
-                cpus = container.get_cgroup_item('cpuset.cpus')
-                cpu_shares = container.get_cgroup_item('cpu.shares')
-                with open('/sys/fs/cgroup/memory/lxc/%s/memory.max_usage_in_bytes' % container.name) as memf:
-                    mem_used = int(int(memf.readline()) / 10**6)
-                mem_limit = int(container.get_cgroup_item('memory.limit_in_bytes'))
-                if mem_limit == 2**64 - 1:
+                cpus = get_cgroup_item(container, 'cpuset.cpus')
+                cpu_shares = get_cgroup_item(container, 'cpu.shares')
+                mem_limit = get_cgroup_item(container, 'memory.limit_in_bytes')
+                if not mem_limit or int(mem_limit) == 2**64 - 1:
                     mem_limit = 'unlimited'
                 else:
-                    mem_limit = int(mem_limit / 10**6)
+                    mem_limit = int(int(mem_limit) / 10**6)
+
+                try:
+                    with open('/sys/fs/cgroup/memory/lxc/%s/memory.max_usage_in_bytes' % container.name) as memf:
+                        mem_used = int(int(memf.readline()) / 10**6)
+                except FileNotFoundError:
+                    mem_used = 0
+
                 memory = '%s/%s' % (mem_used, mem_limit)
                 table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to, cpus, cpu_shares, memory]])
         sys.stdout.write(table.get_string()+'\n')

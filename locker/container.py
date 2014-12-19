@@ -123,8 +123,14 @@ class Container(lxc.Container):
         lxc.Container.__init__(self, name, config_path)
 
     @return_if_not_defined
-    @return_if_not_running
     def cgroup(self):
+        ''' Apply cgroup settings
+
+        Apply the cgroup configuration that is available as key-value pair
+        in the YAML configuration file in the "cgroups" subtree.
+        The method will update the current values of the container if it is
+        running and always write the new values to the container's config file.
+        '''
         if not 'cgroup' in self.yml:
             self.logger.debug('No cgroup settings')
             return
@@ -137,9 +143,11 @@ class Container(lxc.Container):
                 continue
             key = match.group(1)
             value = match.group(2)
-            if not self.set_cgroup_item(key, value):
-                self.logger.warn('Was not able to set: %s = %s', key, value)
-        self.save_config() # TODO This does not save all cgroup settings?!?
+            if self.running:
+                if not self.set_cgroup_item(key, value):
+                    self.logger.warn('Was not able to set: %s = %s', key, value)
+            self.set_config_item('lxc.cgroup.' + key, value)
+        self.save_config()
 
     @return_if_not_defined
     @return_if_not_running
