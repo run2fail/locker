@@ -1,0 +1,33 @@
+type:           map
+mapping:
+    regex;(^[a-zA-Z][a-zA-Z\d]*$):
+        type:   map
+        mapping:
+            "template":
+                type:   map
+                mapping:
+                    "name":
+                        type:       str
+                        required:   true
+                    regex;(.+):
+                        type:       str
+            "clone":
+                type:       str
+            "links":
+                type:       seq
+                sequence:
+                    - type:     str
+            "ports":
+                type:       seq
+                sequence:
+                    - type:     str
+            "volumes":
+                type:       seq
+                sequence:
+                    - type:     str
+            "fqdn":
+                type:       str
+            "cgroup":
+                type:       seq
+                sequence:
+                    - type:     str

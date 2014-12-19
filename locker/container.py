@@ -10,7 +10,7 @@ import re
 import time
 import os
 import shutil
-from locker.util import rule_to_str, regex_container_name, regex_link
+from locker.util import rule_to_str, regex_container_name, regex_link, regex_ports, regex_volumes, regex_cgroup
 import locker.project
 from functools import wraps
 
@@ -121,6 +121,25 @@ class Container(lxc.Container):
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         lxc.Container.__init__(self, name, config_path)
+
+    @return_if_not_defined
+    @return_if_not_running
+    def cgroup(self):
+        if not 'cgroup' in self.yml:
+            self.logger.debug('No cgroup settings')
+            return
+        self.logger.debug('Applying cgroup settings')
+        regex = re.compile(regex_cgroup)
+        for cgroup in self.yml['cgroup']:
+            match = regex.match(cgroup)
+            if not match:
+                self.logger.warn('Malformed cgroup setting: %s', cgroup)
+                continue
+            key = match.group(1)
+            value = match.group(2)
+            if not self.set_cgroup_item(key, value):
+                self.logger.warn('Was not able to set: %s = %s', key, value)
+        self.save_config() # TODO This does not save all cgroup settings?!?
 
     @return_if_not_defined
     @return_if_not_running
@@ -403,7 +422,7 @@ class Container(lxc.Container):
 
             :raises: ValueError
             '''
-            regex = re.compile(r'^(?:(?P<host_ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):)?(?P<host_port>\d{1,5}):(?P<container_port>\d{1,5})(?:/(?:(?P<proto_udp>udp)|(?P<proto_tcp>tcp)))?$')
+            regex = re.compile(regex_ports)
             match = regex.match(fwport)
             if not match:
                 self.logger.error('Invalid port forwarding directive: %s', fwport)
@@ -431,7 +450,7 @@ class Container(lxc.Container):
             ips = self.get_ips()
             for container_ip in ips:
                 if container_ip.find(':') >= 0:
-                    self.logger.warn('Found IPv6 address %s - not yet supported', container_ip)
+                    self.logger.warn('Found unsupported IPv6 address: %s', container_ip)
                     continue
                 add_dnat_rule(container_ip, port_conf, locker_nat_chain)
                 add_forward_rule(container_ip, port_conf, filter_forward)
@@ -480,7 +499,7 @@ echo "%s" > "%s/etc/hostname"
 
         This function generates a fstab file based on the volume information in the
         YAML configuration.
-        Currently only bind mounts are supported and no syntax check is run!
+        Currently only bind mounted directories are supported.
         '''
         fstab_file = self.get_config_item('lxc.mount')
         if not fstab_file:
@@ -491,12 +510,15 @@ echo "%s" > "%s/etc/hostname"
         self.logger.debug('Generating fstab: %s', fstab_file)
         with open(fstab_file, 'w+') as fstab:
             if 'volumes' in self.yml:
+                regex = re.compile(regex_volumes)
                 for volume in self.yml['volumes']:
-                    # TODO Check with regex
-                    remote, mountpt = [s.strip() for s in volume.split(':')]
-                    remote = locker.util.expand_vars(remote, self)
-                    if mountpt.startswith('/'):
-                        mountpt = mountpt[1:]
+                    match = regex.match(volume)
+                    if not match:
+                        logging.warn('Invalid volume specification: %s', volume)
+                        continue
+                    remote = locker.util.expand_vars(match.group(1), self)
+                    mountpt = locker.util.expand_vars(match.group(2), self)
+                    self.logger.debug('Adding to fstab: %s %s none bind 0 0', remote, mountpt)
                     fstab.write('%s %s none bind 0 0\n' % (remote, mountpt))
             fstab.write('\n')
 

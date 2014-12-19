@@ -42,6 +42,7 @@ Locker currently supports the following features:
 - Add or remove port forwarding netfilter rules
 - Multi-colored output (can be optionally disabled)
 - (Simple) Linking of containers by adding their hostnames to ``/etc/hosts``
+- Set cgroup configuration (experimental feature)
 
 Challenges implementing Locker
 ------------------------------
@@ -115,6 +116,10 @@ An example project definition in YAML:
             release: "precise"
         links:
         - "db"
+        cgroup:
+        - "memory.limit_in_bytes=200000000"
+        - "cpuset.cpus=0,1"
+        - "cpu.shares=512"
 
 Volumes define bind-mounts of directories on the host system into the container.
 You can use some simple placeholders like ``$name`` or ``$project`` in your volume
@@ -130,6 +135,9 @@ and selects TLS/SSL certificates based on the fqdn.
 
 ``links`` entries will add the specified, i.e., linked container's hostname,
 optional alias, and optional fqdn to the linking container's ``/etc/hosts`` file.
+
+You can apply ``cgroup`` settings by providing a list of strings where each
+string is of the format ``key=value``. Be careful with this feature.
 
 Managing the Lifecycle
 ----------------------
@@ -187,44 +195,49 @@ locker's help output:
 .. code::
 
     usage: locker [-h] [--verbose [VERBOSE]] [--version [VERSION]]
-                  [--delete-dont-ask [DELETE_DONT_ASK]]
-                  [--dont-copy-on-create [DONT_COPY_ON_CREATE]] [--file FILE]
-                  [--project PROJECT] [--restart [RESTART]]
-                  [--no-ports [NO_PORTS]] [--no-links [NO_LINKS]]
-                  [{start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks}]
-                  [containers [containers ...]]
+                [--delete-dont-ask [DELETE_DONT_ASK]]
+                [--dont-copy-on-create [DONT_COPY_ON_CREATE]] [--file FILE]
+                [--project PROJECT] [--restart [RESTART]]
+                [--no-ports [NO_PORTS]] [--no-links [NO_LINKS]]
+                [--no-color [NO_COLOR]] [--extended [EXTENDED]]
+                [{start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks,cgroup}]
+                [containers [containers ...]]
 
     Manage LXC containers.
 
     positional arguments:
-      {start,stop,rm,create,status,ports,rmports,link,rmlink}
+    {start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks}
                             Commmand to run
-      containers            Space separated list of containers (default: all
+    containers            Space separated list of containers (default: all
                             containers)
 
     optional arguments:
-      -h, --help            show this help message and exit
-      --verbose [VERBOSE], -v [VERBOSE]
+    -h, --help            show this help message and exit
+    --verbose [VERBOSE], -v [VERBOSE]
                             Show more output
-      --version [VERSION]   Print version and exit
-      --delete-dont-ask [DELETE_DONT_ASK], -x [DELETE_DONT_ASK]
+    --version [VERSION]   Print version and exit
+    --delete-dont-ask [DELETE_DONT_ASK], -x [DELETE_DONT_ASK]
                             Don't ask for confirmation when deleting
-      --dont-copy-on-create [DONT_COPY_ON_CREATE], -d [DONT_COPY_ON_CREATE]
+    --dont-copy-on-create [DONT_COPY_ON_CREATE], -d [DONT_COPY_ON_CREATE]
                             Don't copy directories/files defined as bind mounts to
                             host after container creation (default: copy
                             directories/files)
-      --file FILE, -f FILE  Specify an alternate locker file (default: locker.yml)
-      --project PROJECT, -p PROJECT
+    --file FILE, -f FILE  Specify an alternate locker file (default: locker.yml)
+    --project PROJECT, -p PROJECT
                             Specify an alternate project name (default: directory
                             name)
-      --restart [RESTART], -r [RESTART]
+    --restart [RESTART], -r [RESTART]
                             Restart already running containers when using "start"
                             command
-      --no-ports [NO_PORTS], -n [NO_PORTS]
+    --no-ports [NO_PORTS], -n [NO_PORTS]
                             Do not add/remove netfilter rules (used with command
                             start/stop)
-      --no-links [NO_LINKS], -m [NO_LINKS]
+    --no-links [NO_LINKS], -m [NO_LINKS]
                             Do not add/remove links (used with command start/stop)
+    --no-color [NO_COLOR], -o [NO_COLOR]
+                            Do not use colored output
+    --extended [EXTENDED], -e [EXTENDED]
+                            Show extended status report
 
 About the commands:
 
@@ -245,13 +258,16 @@ About the commands:
     Remove port i.e., netfilter rules. Automatically done when using stop
     command.
 :status:
-    Show container status.
+    Show container status. An extended status report is available when the
+    particular parameter is used.
 :links:
     Add/updates links in container. Automatically done when using start command.
     Subsequent calls will update the links and remove stale entries of
     not properly stopped/crashed containers.
 :rmlinks:
     Removes all links from the container.
+:cgroup:
+    (Re-)Apply cgroup settings. Automatically done when starting containers.
 
 Limitations & Issues
 ====================
@@ -260,6 +276,12 @@ Limitations & Issues
 - Does not catch malformed YAML files
 - Only directories are supported as bind mounts (``volumes``)
 - Documentation and examples should be further extended.
+- When changing memory or CPU limits via the cgroup settings, these changes are
+  not "seen" by most user space tools. For more information have a look at the
+  `blog post <http://fabiokung.com/2014/03/13/memory-inside-linux-containers/>`_
+  of Fabio Kung.
+- ``cgroup`` settings are applied but not written to the container's config
+  file when calling lxc.Container.save_config().
 
 Requirements
 ============
@@ -303,7 +325,6 @@ To-Dos / Feature Wish List
 
 - Source code related:
 
-  - Use string templates, see PEP 3101 and PEP 3101
   - Write real unit tests without side-effects (see next section for further
     information)
 
@@ -350,6 +371,8 @@ Words of Warning
     - May destroy your data
     - Many errors and misconfigurations are not caught yet and may result in
       undefined states
+    - The feature to set cgroup configuration via the YAML file has high
+      potential to shoot yourself in the foot
     - Test in an expendable virtual machine first!
     - Compatibility may be broken in future versions
 

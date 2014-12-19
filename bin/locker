@@ -48,7 +48,8 @@ def parse_args():
     parser.add_argument('--no-ports', '-n', nargs='?', type=bool, const=True, default=False, help='Do not add/remove netfilter rules (used with command start/stop)')
     parser.add_argument('--no-links', '-m', nargs='?', type=bool, const=True, default=False, help='Do not add/remove links (used with command start/stop)')
     parser.add_argument('--no-color', '-o', nargs='?', type=bool, const=True, default=False, help='Do not use colored output')
-    parser.add_argument('command', nargs='?', choices=['start', 'stop', 'reboot', 'rm', 'create', 'status', 'ports', 'rmports', 'links', 'rmlinks'], default='start', help='Commmand to run')
+    parser.add_argument('--extended', '-e', nargs='?', type=bool, const=True, default=False, help='Show extended status report')
+    parser.add_argument('command', nargs='?', choices=['start', 'stop', 'reboot', 'rm', 'create', 'status', 'ports', 'rmports', 'links', 'rmlinks', 'cgroup'], default='start', help='Commmand to run (default=start)')
     parser.add_argument('containers', nargs='*', default=None, help='Space separated list of containers (default: all containers)')
     args_dict = vars(parser.parse_args())
     return args_dict
@@ -99,6 +100,8 @@ def main():
         pro.links()
     elif args['command'] == 'rmlinks':
         pro.rmlinks()
+    elif args['command'] == 'cgroup':
+        pro.cgroup()
 
 if __name__ == '__main__':
     main()

@@ -26,3 +26,7 @@ foo:
     release: "precise"
   links:
   - "db"
+  cgroup:
+  - "memory.limit_in_bytes=200000000"
+  - "cpuset.cpus=0,1"
+  - "cpu.shares=512"

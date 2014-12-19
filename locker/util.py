@@ -8,6 +8,9 @@ regex_valid_identifier = r'[a-zA-Z][a-zA-Z\d]*'
 regex_project_name = r'^(?P<project>' +  regex_valid_identifier + r')$'
 regex_container_name = regex_project_name[0:-1] + r'_(?P<container>' + regex_valid_identifier + ')$'
 regex_link = r'^(?P<name>' + regex_valid_identifier + r')(?::(?P<alias>' + regex_valid_identifier + r'))?$'
+regex_ports = r'^(?:(?P<host_ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):)?(?P<host_port>\d{1,5}):(?P<container_port>\d{1,5})(?:/(?:(?P<proto_udp>udp)|(?P<proto_tcp>tcp)))?$'
+regex_volumes = r'^(?P<outside>.*):/(?P<inside>.*)$'
+regex_cgroup = r'^(?P<key>.*)\s*=\s*(?P<value>.*)$'
 
 def expand_vars(text, container):
     ''' Expand some variables

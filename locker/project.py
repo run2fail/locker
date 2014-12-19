@@ -123,9 +123,9 @@ class Project(object):
         :param name: Name of the container
         :returns: Container object if found, else None
         '''
-        name = '%s_%s' % (self.name, name)
-        for con in self.containers:
-            if con.name == name:
+        pname = '%s_%s' % (self.name, name)
+        for con in self.all_containers:
+            if con.name == pname:
                 return con
         return None
 
@@ -135,11 +135,18 @@ class Project(object):
 
         :param containers: List of containers or None (== all containers)
         '''
-        header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports', 'Links']
+        if not 'extended' in self.args or not self.args['extended']:
+            header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports', 'Links']
+        else:
+            header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports', 'Links', 'CPUs', 'Shares', 'Memory [MB]']
         table = prettytable.PrettyTable(header)
         table.align = 'l'
         table.hrules = prettytable.HEADER
         table.vrules = prettytable.NONE
+        table.align['CPUs'] = 'r'
+        table.align['Shares'] = 'r'
+        table.align['Memory [MB]'] = 'r'
+
         for container in containers:
             defined = container.defined
             name = container.name
@@ -153,7 +160,21 @@ class Project(object):
             reset_color = Fore.RESET if container.color else ''
             ports = break_and_add_color(container, ports)
             linked_to = break_and_add_color(container, container.linked_to())
-            table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
+
+            if not 'extended' in self.args or not self.args['extended']:
+                table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
+            else:
+                cpus = container.get_cgroup_item('cpuset.cpus')
+                cpu_shares = container.get_cgroup_item('cpu.shares')
+                with open('/sys/fs/cgroup/memory/lxc/%s/memory.max_usage_in_bytes' % container.name) as memf:
+                    mem_used = int(int(memf.readline()) / 10**6)
+                mem_limit = int(container.get_cgroup_item('memory.limit_in_bytes'))
+                if mem_limit == 2**64 - 1:
+                    mem_limit = 'unlimited'
+                else:
+                    mem_limit = int(mem_limit / 10**6)
+                memory = '%s/%s' % (mem_used, mem_limit)
+                table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to, cpus, cpu_shares, memory]])
         sys.stdout.write(table.get_string()+'\n')
 
     @container_list
@@ -166,6 +187,7 @@ class Project(object):
             try:
                 container.start()
                 if not 'not_ports' in self.args or not self.args['no_ports']:
+                    self.cgroup(containers=[container])
                     self.ports(containers=[container])
             except CommandFailed:
                 pass
@@ -331,5 +353,17 @@ class Project(object):
         for container in containers:
             try:
                 container.rmlinks()
+            except CommandFailed:
+                pass
+
+    @container_list
+    def cgroup(self, *, containers=None):
+        ''' Set cgroup configuration
+
+        :param containers: List of containers or None (== all containers)
+        '''
+        for container in containers:
+            try:
+                container.cgroup()
             except CommandFailed:
                 pass
