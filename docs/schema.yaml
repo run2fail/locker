@@ -1,15 +1,17 @@
 type:           map
+matching-rule:  "any"
 mapping:
-    regex;(^[a-zA-Z][a-zA-Z\d]*$):
+    re;(^[a-zA-Z][a-zA-Z\d]*$):
         type:   map
         mapping:
             "template":
                 type:   map
+                matching-rule:  "any"
                 mapping:
                     "name":
                         type:       str
                         required:   true
-                    regex;(.+):
+                    re;(^.+$):
                         type:       str
             "clone":
                 type:       str

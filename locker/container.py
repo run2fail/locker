@@ -12,9 +12,11 @@ import os
 import shutil
 from locker.util import rule_to_str, regex_container_name, regex_link, regex_ports, regex_volumes, regex_cgroup
 import locker.project
+from locker.network import Network
 from functools import wraps
 
 class CommandFailed(RuntimeError):
+    ''' Generic command failed RuntimeError '''
     def __init__(self, arg):
         self.msg = arg
 
@@ -23,56 +25,60 @@ class CommandFailed(RuntimeError):
 
 def return_if_not_defined(func):
     @wraps(func)
-    def func_wrapper(*args, **kwargs):
+    def return_if_not_defined_wrapper(*args, **kwargs):
         if not args[0].defined:
             args[0].logger.debug('Container is not yet defined')
             return
         else:
             return func(*args, **kwargs)
-    return func_wrapper
+    return return_if_not_defined_wrapper
 
 def return_if_defined(func):
     @wraps(func)
-    def func_wrapper(*args, **kwargs):
+    def return_if_defined_wrapper(*args, **kwargs):
         if args[0].defined:
             args[0].logger.debug('Container is defined')
             return
         else:
             return func(*args, **kwargs)
-    return func_wrapper
+    return return_if_defined_wrapper
 
 def return_if_not_running(func):
     @wraps(func)
-    def func_wrapper(*args, **kwargs):
+    def return_if_not_running_wrapper(*args, **kwargs):
         if not args[0].running:
             args[0].logger.debug('Container is stopped')
             return
         else:
             return func(*args, **kwargs)
-    return func_wrapper
-
-def needs_locker_table(func):
-    ''' Ensures that the locker table exists
-    '''
-    @wraps(func)
-    def func_wrapper(*args, **kwargs):
-        try:
-            args[0].project.prepare_locker_table()
-        except iptc.IPTCError:
-            raise
-        return func(*args, **kwargs)
-    return func_wrapper
+    return return_if_not_running_wrapper
 
 class Container(lxc.Container):
-    '''
-    Extended lxc.Container class
+    ''' Extended lxc.Container class
 
-    The class adds:
+    This class adds:
 
       - Checks and logging
       - Locker specific attributes
       - Handling of project specifc parameters
     '''
+
+    def __init__(self, name, yml, project, color='', config_path=None):
+        ''' Init instance with custom property values and init base class
+        '''
+        if not re.match(regex_container_name, name):
+            raise ValueError('Invalid value for container name: %s' % name)
+        self.yml = yml
+        self.project = project
+        self.color = color
+        self.logger = logging.getLogger(name)
+        self.logger.propagate = False
+        reset_color = Fore.RESET if self.color else ''
+        formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + color + '[' + name + '] %(message)s' + reset_color)
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+        lxc.Container.__init__(self, name, config_path)
 
     @staticmethod
     def get_containers(project, yml):
@@ -90,7 +96,7 @@ class Container(lxc.Container):
             pname = '%s_%s' % (project.name, name)
             if pname not in lxc.list_containers():
                 logging.debug('Container \"%s\" does not exist yet or is not accessible as this user.', pname)
-            if 'no_color' in project.args and project.args['no_color']:
+            if project.args.get('no_color', False):
                 color = ''
             else:
                 color = colors[num % len(colors)]
@@ -98,29 +104,55 @@ class Container(lxc.Container):
 
             all_containers.append(container)
             if len(project.args['containers']) and pname not in project.args['containers']:
-                logging.debug('%s was not selected', pname)
                 continue
             containers.append(container)
         logging.debug('Selected containers: %s', [con.name for con in containers])
         return (containers, all_containers)
 
-    def __init__(self, name, yml, project, color='', config_path=None):
-        ''' Init instance with custom property values and init base class
+    def _network_conf(self):
+        ''' Apply network configuration
         '''
-        if not re.match(regex_container_name, name):
-            raise ValueError('Invalid value for container name: %s' % name)
-        self.yml = yml
-        self.project = project
-        self.color = color
-        self.logger = logging.getLogger(name)
-        self.logger.propagate = False
-        reset_color = Fore.RESET
-        reset_color = Fore.RESET if self.color else ''
-        formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + color + '[' + name + '] %(message)s' + reset_color)
-        handler = logging.StreamHandler()
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
-        lxc.Container.__init__(self, name, config_path)
+        # TODO Should check if there is any network device at all
+        self.network[0].link = self.project.network.bridge_ifname
+        self.network[0].veth_pair = self.name
+        self.network[0].ipv4 = self.project.network.get_ip(self)
+        # BUG Setting the gateway does not work as expected
+        # TODO Activate once its clear how the gateway can be set
+        #self.network[0].ipv4_gateway = self.project.network.gateway
+        self.logger.debug('Network configuration: link=%s, veth=%s, ipv4=%s, gateway=%s',
+                          self.network[0].link, self.network[0].veth_pair,
+                          self.network[0].ipv4, self.network[0].ipv4_gateway)
+        self.save_config()
+
+    @return_if_not_defined
+    def _enable_dns(self, dns=['8.8.8.8', '8.8.4.4'], files=['/etc/resolv.conf', '/etc/resolvconf/resolv.conf.d/base']):
+        ''' Set DNS servers in /etc/resolv.conf and further files
+
+        Write the specified DNS server IP addresses as name server entries to
+        the specified files. Please note that the file will be overwritten but
+        will not be created if missing.
+
+        :param dns: List of IPs (as string) to set as name servers
+        :param files: List of filenames where to write the name server entries
+        '''
+        self.logger.debug('Enabling name resolution: %s', dns)
+        try:
+            rootfs = self.get_config_item('lxc.rootfs')
+        except KeyError:
+            self.logger.debug('rootfs is still empty, container defined = %s',
+                              self.defined)
+            return
+
+        _files = ['%s/%s' % (rootfs, rfile) for rfile in files]
+        for rconf_file in _files:
+            try:
+                with open(rconf_file, 'w') as rconf:
+                    for server in dns:
+                        rconf.write('nameserver %s\n' % server)
+                    rconf.write('\n')
+                self.logger.debug('Updated: %s', rconf_file)
+            except Exception as exception:
+                self.logger.warn('Could not set %s: %s', rconf_file, exception)
 
     @return_if_not_defined
     def cgroup(self):
@@ -215,7 +247,7 @@ class Container(lxc.Container):
         '''
         if self.running:
             self.logger.debug('Container is already running')
-            if not 'restart' in self.project.args or not self.project.args['restart']:
+            if not self.project.args.get('restart', False):
                 self.logger.debug('Container will not be restarted')
                 return
             self.logger.info('Restarting container')
@@ -225,6 +257,8 @@ class Container(lxc.Container):
                 raise
         self._generate_fstab()
         self._set_fqdn_hook()
+        self._network_conf()
+        self._enable_dns()
         self.logger.info('Starting container')
         lxc.Container.start(self)
         if not self.running:
@@ -241,7 +275,9 @@ class Container(lxc.Container):
         '''
         self.logger.info('Stopping container')
         self.rmlinks()
-        lxc.Container.stop(self)
+        if not self.shutdown(self.project.args.get('timeout', 30)):
+            self.logger.warn('Could not shutdown, forcing stop')
+            lxc.Container.stop(self)
         if self.running:
             self.logger.critical('Could not stop container')
             raise CommandFailed('Could not stop container')
@@ -262,11 +298,12 @@ class Container(lxc.Container):
             '''
             self.logger.info('Creating container from template: %s', self.yml['template']['name'])
             flags = lxc.LXC_CREATE_QUIET
-            if self.logger.level == logging.DEBUG:
+            if self.project.args.get('verbose', False):
                 flags = 0
             lxc.Container.create(self, self.yml['template']['name'], flags, args=self.yml['template'])
             if not self.defined:
-                self.logger.info('Creation failed from template: %s', self.yml['template']['name'])
+                self.logger.error('Creation failed from template: %s', self.yml['template']['name'])
+                self.logger.error('Try again with \"--verbose\" for more information')
                 raise CommandFailed('Creation failed from template: %s' % self.yml['template']['name'])
             self._copy_mounted()
 
@@ -309,7 +346,7 @@ class Container(lxc.Container):
 
         :raises: CommandFailed
         '''
-        if not 'delete_dont_ask' in self.project.args or not self.project.args['delete_dont_ask']:
+        if not self.project.args.get('delete_dont_ask', False):
             # TODO Implement a timeout here?!?
             input_var = input("Delete %s? [y/N]: " % (self.name))
             if input_var not in ['y', 'Y']:
@@ -326,42 +363,20 @@ class Container(lxc.Container):
         except CommandFailed:
             raise
 
-    @needs_locker_table
     def rmports(self):
+        ''' Remove netfilter rules
         '''
-        Remove netfilter rules
-
-        Don't call this method directy but via the particular project instance.
-        iptc produces strange errors when chains are modified too fast. Hence the
-        Project.rmports() disables the auto_commit while changes are made by the
-        container instances.
-        '''
+        self.logger.debug('Removing netfilter rules')
         if self.running:
-            self.logger.warn('Container is still running, services will not be available anymore')
+            self.logger.warn('Container is still running, services will be unavailable')
 
         nat_table = iptc.Table(iptc.Table.NAT)
-        locker_nat_chain = iptc.Chain(nat_table, 'LOCKER')
-        for rule in locker_nat_chain.rules:
-            for match in rule.matches:
-                if match.name == 'comment' and match.comment == self.name:
-                    self.logger.debug('Removing LOCKER rule: %s', rule_to_str(rule))
-                    try:
-                        locker_nat_chain.delete_rule(rule)
-                    except iptc.IPTCError:
-                        self.logger.warn('Could not remove rule from LOCKER table: %s', rule_to_str(rule))
-                        break
+        locker_chain = iptc.Chain(nat_table, 'LOCKER')
+        Network._delete_if_comment(self.name, nat_table, locker_chain)
 
         filter_table = iptc.Table(iptc.Table.FILTER)
-        filter_forward = iptc.Chain(filter_table, 'FORWARD')
-        for rule in filter_forward.rules:
-            for match in rule.matches:
-                if match.name == 'comment' and match.comment == self.name:
-                    self.logger.debug('Removing FORWARD rule: %s', rule_to_str(rule))
-                    try:
-                        filter_forward.delete_rule(rule)
-                    except iptc.IPTCError:
-                        self.logger.warn('Could not remove rule from FORWARD table: %s', rule_to_str(rule))
-                        break
+        forward_chain = iptc.Chain(filter_table, 'FORWARD')
+        Network._delete_if_comment(self.name, filter_table, forward_chain)
 
     def _has_netfilter_rules(self):
         ''' Check if there are any netfilter rules for this container
@@ -371,64 +386,59 @@ class Container(lxc.Container):
         :returns: True if any rule found, else False
         '''
         self.logger.debug('Checking if container has already rules')
-        locker_nat_chain = iptc.Chain(iptc.Table(iptc.Table.NAT), 'LOCKER')
-        filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
-        for rule in locker_nat_chain.rules:
-            for match in rule.matches:
-                if match.name == 'comment' and match.comment == self.name:
-                    self.logger.info('Found rule(-s) in LOCKER chain')
-                    return True
-        for rule in filter_forward.rules:
-            for match in rule.matches:
-                if match.name == 'comment' and match.comment == self.name:
-                    self.logger.info('Found rule(-s) in FORWARD chain')
-                    return True
-        return False
+        nat_table = iptc.Table(iptc.Table.NAT)
+        locker_chain = iptc.Chain(nat_table, 'LOCKER')
+        filter_table = iptc.Table(iptc.Table.FILTER)
+        forward_chain = iptc.Chain(filter_table, 'FORWARD')
+
+        return Network.find_comment_in_chain(self.name, locker_chain) or Network.find_comment_in_chain(self.name, forward_chain)
+
+    def _add_dnat_rule(self, container_ip, port_conf, locker_nat_chain):
+        ''' Add rule to the LOCKER chain in the NAT table
+        '''
+        port_forwarding = iptc.Rule()
+        port_forwarding.protocol = port_conf['proto']
+        if port_conf['host_ip']:
+            port_forwarding.dst = port_conf['host_ip']
+        port_forwarding.in_interface = '!%s' % self.project.network.bridge_ifname
+        tcp_match = port_forwarding.create_match(port_conf['proto'])
+        tcp_match.dport = port_conf['host_port']
+        comment_match = port_forwarding.create_match('comment')
+        comment_match.comment = self.name
+        target = port_forwarding.create_target('DNAT')
+        target.to_destination = '%s:%s' % (container_ip, port_conf['container_port'])
+        locker_nat_chain.insert_rule(port_forwarding)
+
+    def _add_forward_rule(self, container_ip, port_conf, filter_forward):
+        ''' Add rule to the FORWARD chain in the FILTER table
+        '''
+        forward_rule = iptc.Rule()
+        forward_rule.protocol = port_conf['proto']
+        forward_rule.dst = container_ip
+        forward_rule.in_interface = '!%s' % self.project.network.bridge_ifname
+        forward_rule.out_interface = self.project.network.bridge_ifname
+        tcp_match = forward_rule.create_match(port_conf['proto'])
+        tcp_match.dport = port_conf['container_port']
+        comment_match = forward_rule.create_match('comment')
+        comment_match.comment = self.name
+        forward_rule.create_target('ACCEPT')
+        filter_forward.insert_rule(forward_rule)
 
     @return_if_not_defined
     @return_if_not_running
-    @needs_locker_table
-    def ports(self):
-        ''' Add firewall rules to enable port forwarding
+    def ports(self, indirect=False):
+        ''' Add netfilter rules to enable port forwarding
 
-        :param containers: List of containers or None (== all containers)
-        :raises:
+        :param indirect: Set to True to avoid the warning output that there
+                          already are netfilter rules for this container. This
+                          is usualy desired when ports() is indirectly called
+                          via the "start" command.
         '''
-        def add_dnat_rule(container_ip, port_conf, locker_nat_chain):
-            ''' Add rule to the LOCKER chain in the NAT table
-            '''
-            port_forwarding = iptc.Rule()
-            port_forwarding.protocol = port_conf['proto']
-            if port_conf['host_ip']:
-                port_forwarding.dst = port_conf['host_ip']
-            port_forwarding.in_interface = '!lxbr0'
-            tcp_match = port_forwarding.create_match(port_conf['proto'])
-            tcp_match.dport = port_conf['host_port']
-            comment_match = port_forwarding.create_match('comment')
-            comment_match.comment = self.name
-            target = port_forwarding.create_target('DNAT')
-            target.to_destination = '%s:%s' % (container_ip, port_conf['container_port'])
-            locker_nat_chain.insert_rule(port_forwarding)
-
-        def add_forward_rule(container_ip, port_conf, filter_forward):
-            ''' Add rule to the FORWARD chain in the FILTER table
-            '''
-            forward_rule = iptc.Rule()
-            forward_rule.protocol = port_conf['proto']
-            forward_rule.dst = container_ip
-            forward_rule.in_interface = '!lxcbr0'
-            forward_rule.out_interface = 'lxcbr0'
-            tcp_match = forward_rule.create_match(port_conf['proto'])
-            tcp_match.dport = port_conf['container_port']
-            comment_match = forward_rule.create_match('comment')
-            comment_match.comment = self.name
-            forward_rule.create_target('ACCEPT')
-            filter_forward.insert_rule(forward_rule)
-
-        def parse_port_conf(self, fwport):
+        def _parse_port_conf(self, fwport):
             ''' Split port forward directive in parts
 
-            :raises: ValueError
+            :param fwport: Port forwarding configuration
+            :raises: ValueError if fwport is invalid
             '''
             regex = re.compile(regex_ports)
             match = regex.match(fwport)
@@ -447,12 +457,13 @@ class Container(lxc.Container):
         locker_nat_chain = iptc.Chain(iptc.Table(iptc.Table.NAT), 'LOCKER')
         filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
         if self._has_netfilter_rules():
-            self.logger.warn('Not adding any netfilter rules')
+            if not indirect:
+                self.logger.warn('Existing netfilter rules found - must be removed first')
             return
 
         for fwport in self.yml['ports']:
             try:
-                port_conf = parse_port_conf(self, fwport)
+                port_conf = _parse_port_conf(self, fwport)
             except ValueError:
                 continue
             ips = self.get_ips()
@@ -460,8 +471,8 @@ class Container(lxc.Container):
                 if container_ip.find(':') >= 0:
                     self.logger.warn('Found unsupported IPv6 address: %s', container_ip)
                     continue
-                add_dnat_rule(container_ip, port_conf, locker_nat_chain)
-                add_forward_rule(container_ip, port_conf, filter_forward)
+                self._add_dnat_rule(container_ip, port_conf, locker_nat_chain)
+                self._add_forward_rule(container_ip, port_conf, filter_forward)
 
     def _set_fqdn_hook(self):
         ''' Set FQDN hook script to set the FQDN
@@ -566,7 +577,7 @@ echo "%s" > "%s/etc/hostname"
         :param container: The container to handle
         '''
 
-        def remove_trailing_slash(string):
+        def _remove_trailing_slash(string):
             '''
             Dirty work-around that should be removed in the future, especially
             when files should be supported as bind-mounts
@@ -585,7 +596,8 @@ echo "%s" > "%s/etc/hostname"
         rootfs = self.get_config_item('lxc.rootfs')
         assert len(rootfs)
         for volume in self.yml['volumes']:
-            outside, inside = [remove_trailing_slash(locker.util.expand_vars(s.strip(), self)) for s in volume.split(':')]
+            # TODO Use regex!
+            outside, inside = [_remove_trailing_slash(locker.util.expand_vars(s.strip(), self)) for s in volume.split(':')]
             if os.path.exists(outside):
                 self.logger.warn('Path \"%s\" exists on host, skipping', outside)
                 continue
@@ -622,18 +634,26 @@ echo "%s" > "%s/etc/hostname"
 
     @return_if_not_defined
     def links(self, auto_update=False):
-        '''
-        Link container to another container
+        ''' Link container with other containers
+
+        Links the container to any other container that is specified in the
+        particular "links" subtree in YAML file.
+        TODO Refactor, the _link_container is not really a descriptive/matching
+             name
+
+        :param auto_update: Set to True to suppress some logger output because
+                            the container to link to is purposely stopped and
+                            unavailable.
         '''
 
-        def link_container(self, name, alias=None, auto_update=False):
+        def _link_container(self, name, alias=None, auto_update=False):
             self.logger.debug('Linking with %s', name)
             container = self.project.get_container(name)
             if not container:
                 self.logger.error('Cannot link with unavailable container: %s', name)
                 return
             if not container.running:
-                # Suppress message when it's clear that the particuar container may have been stopped
+                # Suppress message when it's clear that the particular container may have been stopped
                 if auto_update:
                     self.logger.debug('Cannot link with stopped container: %s', name)
                 else:
@@ -661,7 +681,7 @@ echo "%s" > "%s/etc/hostname"
             group_dict = match.groupdict()
             name = group_dict['name']
             alias = group_dict.get('alias', None)
-            link_container(self, name, alias, auto_update)
+            _link_container(self, name, alias, auto_update)
 
     def _update_etc_hosts(self, entries):
         '''
@@ -683,15 +703,15 @@ echo "%s" > "%s/etc/hostname"
             self.logger.warn('/etc/hosts does not exists inside rootfs')
             return
         # TODO Use better regex
-        regex = re.compile('^.* # %s_.+$' % self.project.name)
+        regex = re.compile('^.* # (%s_.+)$' % self.project.name)
         with open(etc_hosts, 'w+') as etc_hosts_wfile:
             for line in lines:
                 if regex.match(line):
                     self.logger.debug('Removing from /etc/hosts: %s', line[:-1])
                     continue
                 etc_hosts_wfile.write(line)
-            for ip, name, aliases in entries:
-                new_entry = '%s %s %s # %s_%s' % (ip, name, ' '.join(aliases), self.project.name, name)
+            for ipaddr, name, aliases in entries:
+                new_entry = '%s %s %s # %s_%s' % (ipaddr, name, ' '.join(aliases), self.project.name, name)
                 self.logger.debug('Adding to /etc/hosts: %s', new_entry)
                 etc_hosts_wfile.write('%s\n' % (new_entry))
 

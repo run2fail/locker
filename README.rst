@@ -43,6 +43,11 @@ Locker currently supports the following features:
 - Multi-colored output (can be optionally disabled)
 - (Simple) Linking of containers by adding their hostnames to ``/etc/hosts``
 - Set cgroup configuration (experimental feature)
+- Project specfic network bridge automatically created (and removed on demand)
+- IP addresses are automatically assigned to bridges and containers (``dnsmasq``
+  is not required)
+- DNS entries in the containers are set to ``8.8.8.8`` and ``8.8.4.4`` (planned
+  to be configurable in the near future)
 
 Challenges implementing Locker
 ------------------------------
@@ -59,10 +64,6 @@ must implement features where `fig <http://fig.sh>`_ can simply rely on
   domain names are not known, i.e., there is no "linking" support.
 - In general, the lxc container and network configuration requires manual
   work/modifications, e.g., when containers shall get static IP addresses.
-- For some users it may be undesirable that containers are actually NAT-ted
-  behind the default bridge device and that they can communicate with each other
-  at all. This can be changed but, again, there is no convenient frontend or
-  command line tool.
 
 Note: Please correct me if I am wrong or if there is some solution available!
 This would really help me. Thanks!
@@ -121,23 +122,60 @@ An example project definition in YAML:
         - "cpuset.cpus=0,1"
         - "cpu.shares=512"
 
-Volumes define bind-mounts of directories on the host system into the container.
-You can use some simple placeholders like ``$name`` or ``$project`` in your volume
-definitions.
+The YAML file defines a locker ``project``, i.e., a group of containers. The
+``project`` name may be provided via a command line parameter and derived
+from the directory's name as default.
 
-Different formats of port forwarding rules (``ports``) are supported. If the
-protocol is not specified, the default, i.e. ``tcp``, will be used to configure
-netfilter rules. The ``fqdn`` attribute enables to set the container's hostname
+The first level in the YAML configuration are container names (``name``).
+Containers are created as ``clone`` of other containers available on the system
+or based on ``template`` files that are usually part of the lxc user space
+tools. In the latter case, the map/sub-tree of ``template`` is provided as
+argument to the ``template`` when creating the container. Please note that
+while the container's ``name`` is ``foo`` in the YAML file, the actual name of
+the container on the system will be of the format ``$project_$name`` to enable
+containers with the same name in different projects.
+
+``volumes`` define bind-mounts of directories on the host system into the
+container. You can use some simple placeholders like ``$name``, ``$project``,
+and ``$fqdn`` in your volume definitions.
+
+Different formats of port forwarding rules (``ports``) are supported.  The
+format is ``HOST_IP:HOST_PORT:CONTAINER_PORT/PROTOCOL`` where as ``HOST_IP`` and
+``PROTOCOL`` are optional. If the protocol is not specified, the default
+(``tcp``) will be used to configure netfilter rules.
+
+The ``fqdn`` attribute enables to set the container's hostname
 and full qualified domain name (``fqdn``). This is realized by a lxc hook script
 that is run after the mounting has been done. Several applications rely on the
 ``fqdn``, e.g., the puppet agent of the puppet configuration system generates
-and selects TLS/SSL certificates based on the fqdn.
+and selects TLS/SSL certificates for the authentication at the puppet master
+based on the ``fqdn``.
 
 ``links`` entries will add the specified, i.e., linked container's hostname,
-optional alias, and optional fqdn to the linking container's ``/etc/hosts`` file.
+(optional) alias, and (optional) ``fqdn`` to the linking container's
+``/etc/hosts`` file. This way a container with a webserver based application
+can access a database in another container using the particular hostname.
 
 You can apply ``cgroup`` settings by providing a list of strings where each
-string is of the format ``key=value``. Be careful with this feature.
+string is of the format ``key=value``. All ``cgroup`` settings are also written
+to the container's ``config`` file and are hence set even when you use
+``lxc-start`` to start containers later on. Be careful with this feature.
+
+You can find some examples in the `docs/examples/ <./docs/examples>`_ directory.
+
+Validation
+----------
+
+You can optionally validate your project configuration with the
+`schema file <./docs/schema.yaml>`_ that is available in the ``docs/``
+directory:
+
+.. code::
+
+    $ locker status -f myconf.yaml --validate docs/schema.yaml
+
+Please note that the `pykwalify <https://github.com/Grokzen/pykwalify>`_
+module must be available.
 
 Managing the Lifecycle
 ----------------------
@@ -202,14 +240,15 @@ locker's help output:
                 [--project PROJECT] [--restart [RESTART]]
                 [--no-ports [NO_PORTS]] [--no-links [NO_LINKS]]
                 [--no-color [NO_COLOR]] [--extended [EXTENDED]]
-                [{start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks,cgroup}]
+                [--timeout TIMEOUT] [--validate VALIDATE]
+                [{start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks,cgroup,cleanup}]
                 [containers [containers ...]]
 
     Manage LXC containers.
 
     positional arguments:
-    {start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks}
-                            Commmand to run
+    {start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks,cgroup,cleanup}
+                            Commmand to run (default=start)
     containers            Space separated list of containers (default: all
                             containers)
 
@@ -224,7 +263,8 @@ locker's help output:
                             Don't copy directories/files defined as bind mounts to
                             host after container creation (default: copy
                             directories/files)
-    --file FILE, -f FILE  Specify an alternate locker file (default: locker.yml)
+    --file FILE, -f FILE  Specify an alternate locker file (default:
+                            locker.yaml)
     --project PROJECT, -p PROJECT
                             Specify an alternate project name (default: directory
                             name)
@@ -240,6 +280,10 @@ locker's help output:
                             Do not use colored output
     --extended [EXTENDED], -e [EXTENDED]
                             Show extended status report
+    --timeout TIMEOUT, -t TIMEOUT
+                            Timeout for container shutdown
+    --validate VALIDATE   Validate YAML configuration against the specified
+                            schema
 
 About the commands:
 
@@ -270,12 +314,13 @@ About the commands:
     Removes all links from the container.
 :cgroup:
     (Re-)Apply cgroup settings. Automatically done when starting containers.
+:cleanup:
+    Stop all containers and cleanup netfilter rules and bridge
 
 Limitations & Issues
 ====================
 
 - Must be run as root. Unprivileged containers are not yet supported.
-- Does not catch malformed YAML files
 - Only directories are supported as bind mounts (``volumes``)
 - Documentation and examples should be further extended.
 - When changing memory or CPU limits via the cgroup settings, these changes are
@@ -290,6 +335,8 @@ Requirements
 
   - lxc (official lxc bindings from the linux containers project)
   - see list of requirements in setup.py
+  - `pykwalify <https://github.com/Grokzen/pykwalify>`_ is optionally required
+    if you want to validate your YAML configuration file
 
 - Linux containers userspace tools and libraries
 
@@ -300,7 +347,7 @@ To-Dos / Feature Wish List
 - Networking related:
 
   - Support IPv6 addresses and netfilter rules
-  - Add and use custom bridge device (e.g. locker0)
+  - Bridging
 
     - Prevent communication between containers in the default configuration
     - Add netfilter rules for inter-container commmunication when "links" are
@@ -309,6 +356,8 @@ To-Dos / Feature Wish List
   - Link backwards, i.e., add name + fqdn of the linking container to target
     container. This may be beneficial, e.g., when database logs shall contain
     the hostname
+  - Enable to remove LOCKER chain in the NAT table + rules in the FORWARD chain
+  - Enable to specify DNS servers for each container via the configuration
 
 - Configuration related:
 
@@ -322,11 +371,25 @@ To-Dos / Feature Wish List
     `offical LXC website <http://images.linuxcontainers.org/images/>`_. Maybe
     this can be used via the Python binding?!? For sure the YAML configuration
     needs to be extended to support this feature.
+  - In general, I am not fully convinced of the YAML file's structure and the
+    format of some string attributes, e.g., ``ports`` or ``volumes``. The format
+    tries to mimic the particular format of
+    `Docker <http://www.docker.com>`_  and `fig <http://fig.sh>`_ but I think
+    it would be easier (for users to define and for Locker to parse) to replace
+    these strings with YAML maps and/or sequences.
 
 - Source code related:
 
   - Write real unit tests without side-effects (see next section for further
     information)
+  - Provide dedicated YAML files for the tests and stop using example files.
+
+- User interface related:
+
+  - The status report is getting larger and is already wider than 80 columns.
+    The extended version using the particular command line parameter is even
+    wider. It may be necessary to enable the user to specify the columns of
+    interest, for examle like ``--columns="Name,Ports,CPUs,Memory"``.
 
 - Miscellaneous:
 
@@ -360,7 +423,7 @@ example:
     nosetests3 --with-coverage --cover-package=locker --cover-html --cover-erase
 
 Many test cases rely on the example YAML project configuration that is available
-as ``docs/locker.yml``.
+`here <./docs/examples/locker.yaml>`_.
 
 
 Words of Warning

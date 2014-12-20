@@ -1,0 +1,9 @@
+container:
+  template:
+    name: "ubuntu"
+    release: "trusty"
+    arch: "amd64"
+  ports:
+   - "8000:8001"
+  volumes:
+   - "/opt/data/$project_$name/var/log:/var/log"

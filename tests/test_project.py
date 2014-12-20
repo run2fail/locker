@@ -22,7 +22,7 @@ class TestStatus(unittest.TestCase):
         args = {
             'project':      'locker',
             'containers':   [],
-            'file':         'docs/locker.yaml',
+            'file':         'docs/examples/locker.yaml',
             'verbose':      True,
             }
         self.yml = yaml.load(open('%s' % (args['file'])))
@@ -89,7 +89,7 @@ class TestRmPorts(unittest.TestCase):
         args = {
             'project':      'locker',
             'containers':   [],
-            'file':         'docs/locker.yaml',
+            'file':         'docs/examples/locker.yaml',
             'verbose':      True,
             }
         self.yml = yaml.load(open('%s' % (args['file'])))

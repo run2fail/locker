@@ -1,3 +1,3 @@
 include README.rst
-recursive-include docs *.png *.yml
+recursive-include docs *.png *.yaml
 

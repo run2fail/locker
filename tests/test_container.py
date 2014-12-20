@@ -119,7 +119,7 @@ class TestStart(unittest.TestCase):
         args = {
                 'project':      'locker',
                 'containers':   [],
-                'file':         'docs/locker.yaml',
+                'file':         'docs/examples/locker.yaml',
                 'verbose':      True,
                 'restart':      True,
                 'no_ports':     False,
@@ -168,7 +168,7 @@ class TestStop(unittest.TestCase):
         args = {
                 'project':      'locker',
                 'containers':   [],
-                'file':         'docs/locker.yaml',
+                'file':         'docs/examples/locker.yaml',
                 'verbose':      True,
                 'restart':      True,
                 'no_ports':     False,
@@ -213,7 +213,7 @@ class TestPorts(unittest.TestCase):
         args = {
                 'project':    'locker',
                 'containers': [],
-                'file':       'docs/locker.yaml',
+                'file':       'docs/examples/locker.yaml',
                 'verbose':    True,
                 'restart':    False,
                 'no_ports':   False,
@@ -246,7 +246,7 @@ class TestRmPorts(unittest.TestCase):
         args = {
                 'project':    'locker',
                 'containers': [],
-                'file':       'docs/locker.yaml',
+                'file':       'docs/examples/locker.yaml',
                 'verbose':    True,
                 'restart':    True,
                 'no_ports':   False,

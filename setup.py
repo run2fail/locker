@@ -11,6 +11,11 @@ if match:
 else:
     raise RuntimeError('Could not find version in: %s' % line)
 
+try:
+    import lxc
+except ImportError:
+    raise ImportError('lxc module is not available (not available on PyPi but part of lxc user space tools)')
+
 setup(
     name='Locker',
     version=version,
@@ -27,5 +32,6 @@ setup(
         'colorama',
         'PrettyTable',
         'PyYaml',
+        'pyroute2',
     ],
 )

@@ -3,12 +3,14 @@
 
 from colorama import Fore
 import iptc
+import re
 
 regex_valid_identifier = r'[a-zA-Z][a-zA-Z\d]*'
 regex_project_name = r'^(?P<project>' +  regex_valid_identifier + r')$'
 regex_container_name = regex_project_name[0:-1] + r'_(?P<container>' + regex_valid_identifier + ')$'
 regex_link = r'^(?P<name>' + regex_valid_identifier + r')(?::(?P<alias>' + regex_valid_identifier + r'))?$'
-regex_ports = r'^(?:(?P<host_ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):)?(?P<host_port>\d{1,5}):(?P<container_port>\d{1,5})(?:/(?:(?P<proto_udp>udp)|(?P<proto_tcp>tcp)))?$'
+regex_ip = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+regex_ports = r'^(?:(?P<host_ip>' + regex_ip + '):)?(?P<host_port>\d{1,5}):(?P<container_port>\d{1,5})(?:/(?:(?P<proto_udp>udp)|(?P<proto_tcp>tcp)))?$'
 regex_volumes = r'^(?P<outside>.*):/(?P<inside>.*)$'
 regex_cgroup = r'^(?P<key>.*)\s*=\s*(?P<value>.*)$'
 
@@ -19,8 +21,12 @@ def expand_vars(text, container):
     :param container: Container instance to access the replacement strings
     :returns: Expanded string
     '''
-    text = text.replace('$name', container.name)
+    text = text.replace('$name', container.name.split('_')[1])
     text = text.replace('$project', container.project.name)
+    if 'fqdn' in container.yml and container.yml['fqdn']:
+        text = text.replace('$fqdn', container.yml['fqdn'])
+    elif '$fqdn' in text:
+        container.logger.warn('Cannot replace undefined $fqdn in: %s', text)
     return text
 
 def break_and_add_color(container, vals):
@@ -64,6 +70,15 @@ def rule_to_str(rule):
 def rules_to_str(dnat_rules):
     ''' Convert tuple of DNAT rules to list of strings
 
-    TODO Should be cleaned up or reimplemented
+    :param dnat_rules: tripel of (proto, (dip, dport), (to_ip, to_port))
+    :returns: Rules as list of (sorted) strings
     '''
-    return ['%s:%s->%s/%s' % (dip.split('/')[0], dport, to_port, proto) for proto, (dip, dport), (to_ip, to_port) in dnat_rules]
+    rules = list()
+    for proto, (dip, dport), (to_ip, to_port) in dnat_rules:
+        dip, mask = dip.split('/')
+        if dip == '0.0.0.0':
+            rule = '%s->%s/%s' % (dport, to_port, proto)
+        else:
+            rule = '%s:%s->%s/%s' % (dip, dport, to_port, proto)
+        rules.append(rule)
+    return sorted(rules)

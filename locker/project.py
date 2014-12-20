@@ -10,7 +10,8 @@ from colorama import Fore
 import prettytable
 import locker
 from locker.container import Container, CommandFailed
-from locker.util import break_and_add_color, rule_to_str, rules_to_str, regex_project_name
+from locker.util import break_and_add_color, rules_to_str, regex_project_name
+from locker.network import Network
 import sys
 import re
 from functools import wraps
@@ -25,23 +26,11 @@ def container_list(func):
     "containers" to avoid errors due to duplicated values for the parameter.
     '''
     @wraps(func)
-    def func_wrapper(*args, **kwargs):
+    def container_list_wrapper(*args, **kwargs):
         if 'containers' not in kwargs or not kwargs['containers']:
             kwargs['containers'] = args[0].containers
         return func(*args, **kwargs)
-    return func_wrapper
-
-def needs_locker_table(func):
-    ''' Ensures that the locker table exists
-    '''
-    @wraps(func)
-    def func_wrapper(*args, **kwargs):
-        try:
-            Project.prepare_locker_table()
-        except iptc.IPTCError:
-            raise
-        return func(*args, **kwargs)
-    return func_wrapper
+    return container_list_wrapper
 
 class Project(object):
     '''
@@ -50,30 +39,36 @@ class Project(object):
 
     @property
     def args(self):
+        ''' Get the parsed command line arguments '''
         return self._args
 
     @args.setter
     def args(self, value):
+        ''' Set the parsed command line arguments '''
         if not isinstance(value, dict):
             raise TypeError('Invalid type for args: %s' % type(value))
         self._args = value
 
     @property
     def name(self):
+        ''' Get name of the project '''
         return self._name
 
     @name.setter
     def name(self, value):
+        ''' Set name of the project '''
         if not re.match(regex_project_name, value):
             raise ValueError('Invalid value for project name: %s' % value)
         self._name = value
 
     @property
     def containers(self):
+        ''' Get all selected containers '''
         return self._containers
 
     @containers.setter
     def containers(self, value):
+        ''' Set selected containers '''
         if not isinstance(value, list):
             raise TypeError('Invalid type for container: %s' % type(value))
         if len([x for x in value if not isinstance(x, locker.Container)]):
@@ -82,10 +77,12 @@ class Project(object):
 
     @property
     def all_containers(self):
+        ''' Get all containers '''
         return self._all_containers
 
     @all_containers.setter
     def all_containers(self, value):
+        ''' Set all containers '''
         if not isinstance(value, list):
             raise TypeError('Invalid type for all_containers: %s' % type(value))
         if len([x for x in value if not isinstance(x, locker.Container)]):
@@ -94,13 +91,27 @@ class Project(object):
 
     @property
     def yml(self):
+        ''' Get parsed YAML configuration '''
         return self._yml
 
     @yml.setter
     def yml(self, value):
+        ''' Set parsed YAML configuration '''
         if not isinstance(value, dict):
             raise TypeError('Invalid type for yml: %s' % type(value))
         self._yml = value
+
+    @property
+    def network(self):
+        ''' Get the network instance '''
+        return self._network
+
+    @network.setter
+    def network(self, value):
+        ''' Set the network instance '''
+        if not isinstance(value, Network):
+            raise TypeError('Invalid type for network: %s' % type(value))
+        self._network = value
 
     def __init__(self, yml, args):
         ''' Initialize a new project instance
@@ -110,7 +121,7 @@ class Project(object):
         '''
         self.args = args
         self.name = args['project']
-        # TODO Add YAML configuration check here
+        self.network = Network(self)
         containers, all_containers = Container.get_containers(self, yml)
         self.containers = containers
         self.all_containers = all_containers
@@ -129,31 +140,43 @@ class Project(object):
                 return con
         return None
 
+    @staticmethod
+    def get_cgroup_item(container, key):
+        ''' Get cgroup item
+
+        Tries to get the cgroup item and returns only single item if a list
+        was returned
+
+        :param container: The container to query the cgroup item
+        :param key: The key / name of the cgroup item
+        :returns: cgroup item
+
+        TODO Should be moved to locker.Container
+        '''
+        container.logger.debug('Getting cgroup item: %s', key)
+        try:
+            value = container.get_cgroup_item(key)
+        except KeyError:
+            # get_config_item() can return either
+            # - an empty string
+            # - a list with a single value
+            # - something else that I do not expect
+            value = container.get_config_item('lxc.cgroup.' + key)
+            if value == '':
+                pass
+            elif isinstance(value, list) and len(value) == 1:
+                value = value[0]
+            else:
+                raise ValueError('Unexpected value for cgroup item: %s = %s' % (key, value))
+        return value
+
     @container_list
     def status(self, *, containers=None):
         ''' Show status of all project specific containers
 
         :param containers: List of containers or None (== all containers)
         '''
-        def get_cgroup_item(container, key):
-            container.logger.debug('Getting cgroup item: %s', key)
-            try:
-                value = container.get_cgroup_item(key)
-            except KeyError:
-                # get_config_item() can return either
-                # - an empty string
-                # - a list with a single value
-                # - something else that I do not expect
-                value = container.get_config_item('lxc.cgroup.' + key)
-                if value == '':
-                    pass
-                elif isinstance(value, list) and len(value) == 1:
-                    value = value[0]
-                else:
-                    raise ValueError('Unexpected value for cgroup item: %s = %s' % (key, value))
-            return value
-
-        if not 'extended' in self.args or not self.args['extended']:
+        if not self.args.get('extended', False):
             header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports', 'Links']
         else:
             header = ['Def.', 'Name', 'FQDN', 'State', 'IPs', 'Ports', 'Links', 'CPUs', 'Shares', 'Memory [MB]']
@@ -179,12 +202,12 @@ class Project(object):
             ports = break_and_add_color(container, ports)
             linked_to = break_and_add_color(container, container.linked_to())
 
-            if not 'extended' in self.args or not self.args['extended']:
+            if not self.args.get('extended', False):
                 table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
             else:
-                cpus = get_cgroup_item(container, 'cpuset.cpus')
-                cpu_shares = get_cgroup_item(container, 'cpu.shares')
-                mem_limit = get_cgroup_item(container, 'memory.limit_in_bytes')
+                cpus = Project.get_cgroup_item(container, 'cpuset.cpus')
+                cpu_shares = Project.get_cgroup_item(container, 'cpu.shares')
+                mem_limit = Project.get_cgroup_item(container, 'memory.limit_in_bytes')
                 if not mem_limit or int(mem_limit) == 2**64 - 1:
                     mem_limit = 'unlimited'
                 else:
@@ -204,17 +227,20 @@ class Project(object):
     def start(self, *, containers=None):
         ''' Start all or selected containers
 
+        Starts the container, sets cgroup settings and optionally set ports.
+        Subsequently, all links of all containers are updated.
+
         :param containers: List of containers or None (== all containers)
         '''
         for container in containers:
             try:
                 container.start()
-                if not 'not_ports' in self.args or not self.args['no_ports']:
-                    self.cgroup(containers=[container])
-                    self.ports(containers=[container])
+                container.cgroup()
+                if not self.args.get('no_ports', False):
+                    container.ports(indirect=True)
             except CommandFailed:
                 pass
-        if not 'no_links' in self.args or not self.args['no_links']:
+        if not self.args.get('no_links', False):
             self.links(containers=self.all_containers, auto_update=True)
 
     @container_list
@@ -242,11 +268,11 @@ class Project(object):
         for container in containers:
             try:
                 container.stop()
-                if not 'no_ports' in self.args or not self.args['no_ports']:
+                if not self.args.get('no_ports', False):
                     self.rmports(containers=[container])
             except CommandFailed:
                 pass
-        if not 'no_links' in self.args or not self.args['no_links']:
+        if not self.args.get('no_links', False):
             self.links(containers=self.all_containers, auto_update=True)
 
     @container_list
@@ -275,47 +301,6 @@ class Project(object):
             except CommandFailed:
                 pass
 
-    @staticmethod
-    def prepare_locker_table():
-        ''' Add container unspecific netfilter modifications
-
-        This method does the following
-
-          - Adds LOCKER chain to the NAT table
-          - Creates a rule from the PREROUTING chain in the NAT table to the
-            LOCKER chain
-          - Ensures that the jump rule is only added once (the rule's comments
-            are checked for a match)
-
-        :throws: iptc.IPTCError if the LOCKER chain cannot be retrieved or
-                 created
-        '''
-        nat_table = iptc.Table(iptc.Table.NAT)
-        if 'LOCKER' not in [c.name for c in nat_table.chains]:
-            try:
-                logging.debug('Adding LOCKER chain to NAT table')
-                nat_table.create_chain('LOCKER')
-            except iptc.IPTCError:
-                logging.error('Was not able to create LOCKER chain in NAT table, cannot add rules')
-                raise
-        assert 'LOCKER' in [c.name for c in nat_table.chains]
-
-        nat_prerouting_chain = iptc.Chain(nat_table, 'PREROUTING')
-        for rule in nat_prerouting_chain.rules:
-            for match in rule.matches:
-                if match.name == 'comment' and match.comment == 'LOCKER':
-                    logging.debug('Found rule to jump from PREROUTING chain to LOCKER chain')
-                    return
-
-        jump_to_locker_rule = iptc.Rule()
-        jump_to_locker_rule.create_target("LOCKER")
-        addr_type_match = jump_to_locker_rule.create_match("addrtype")
-        addr_type_match.dst_type = "LOCAL"
-        comment_match = jump_to_locker_rule.create_match("comment")
-        comment_match.comment = 'LOCKER'
-        nat_prerouting_chain.insert_rule(jump_to_locker_rule)
-
-    @needs_locker_table
     @container_list
     def ports(self, *, containers=None):
         ''' Add firewall rules to enable port forwarding
@@ -334,26 +319,11 @@ class Project(object):
 
         :param containers: List of containers or None (== all containers)
         '''
-        # TODO Move the autocommit disabling + enabling to Container
-        filter_table = iptc.Table(iptc.Table.FILTER)
-        filter_table.autocommit = False
-
-        nat_table = iptc.Table(iptc.Table.NAT)
-        nat_table.autocommit = False
-
-        logging.debug('Removing netfilter rules')
         for container in containers:
             try:
                 container.rmports()
             except CommandFailed:
                 pass
-
-        filter_table.commit()
-        filter_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
-        filter_table.autocommit = True
-        nat_table.commit()
-        nat_table.refresh() # work-around (iptc.ip4tc.IPTCError: can't commit: b'Resource temporarily unavailable')
-        nat_table.autocommit = True
 
     @container_list
     def links(self, *, containers=None, auto_update=False):
@@ -390,3 +360,18 @@ class Project(object):
                 container.cgroup()
             except CommandFailed:
                 pass
+
+    def cleanup(self):
+        ''' Stop all container, remove bridge and all netfilter rules
+
+        Stops all containers and on success, removes the netfilter rules,
+        and then the project bridge.
+        Exception: This does not remove the LOCKER chain in the NAT table and
+        the jump from the PREROUTING chain to the LOCKER chain!
+        '''
+        self.stop(containers=self.all_containers)
+        if len([con for con in self.all_containers if con.running]):
+            logging.error('Was not able to stop all container, cannot cleanup')
+            return
+        self.network.stop()
+
