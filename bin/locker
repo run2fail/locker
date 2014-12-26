@@ -39,21 +39,88 @@ def parse_args():
     :returns: Dictionary of the parsed arguments
     '''
     parser = argparse.ArgumentParser(description='Manage LXC containers.')
-    parser.add_argument('--verbose', '-v', nargs='?', type=bool, const=True, default=False, help='Show more output')
-    parser.add_argument('--version', nargs='?', type=bool, const=True, default=False, help='Print version and exit')
-    parser.add_argument('--delete-dont-ask', '-x', nargs='?', type=bool, const=True, default=False, help='Don\'t ask for confirmation when deleting')
-    parser.add_argument('--dont-copy-on-create', '-d', nargs='?', type=bool, const=True, default=False, help='Don\'t copy directories/files defined as bind mounts to host after container creation (default: copy directories/files)')
-    parser.add_argument('--file', '-f', default='./locker.yaml', help='Specify an alternate locker file (default: locker.yaml)')
-    parser.add_argument('--project', '-p', default=os.path.basename(os.getcwd()), help='Specify an alternate project name (default: directory name)')
-    parser.add_argument('--restart', '-r', nargs='?', type=bool, const=True, default=False, help='Restart already running containers when using \"start\" command')
-    parser.add_argument('--no-ports', '-n', nargs='?', type=bool, const=True, default=False, help='Do not add/remove netfilter rules (used with command start/stop)')
-    parser.add_argument('--no-links', '-m', nargs='?', type=bool, const=True, default=False, help='Do not add/remove links (used with command start/stop)')
-    parser.add_argument('--no-color', '-o', nargs='?', type=bool, const=True, default=False, help='Do not use colored output')
-    parser.add_argument('--extended', '-e', nargs='?', type=bool, const=True, default=False, help='Show extended status report')
-    parser.add_argument('--timeout', '-t', type=int, default=30, help='Timeout for container shutdown')
-    parser.add_argument('--validate', nargs=1, required=False, help='Validate YAML configuration against the specified schema')
-    parser.add_argument('command', nargs='?', choices=['start', 'stop', 'reboot', 'rm', 'create', 'status', 'ports', 'rmports', 'links', 'rmlinks', 'cgroup', 'cleanup'], default='start', help='Commmand to run (default=start)')
-    parser.add_argument('containers', nargs='*', default=None, help='Space separated list of containers (default: all containers)')
+
+    parser.add_argument(
+        '--verbose', '-v',
+        nargs='?', type=bool, const=True, default=False,
+        help='Show more output')
+
+    parser.add_argument(
+        '--version', nargs='?',
+        type=bool, const=True, default=False,
+        help='Print version and exit')
+
+    parser.add_argument(
+        '--delete-dont-ask', '-x',
+        nargs='?', type=bool, const=True, default=False,
+        help='Don\'t ask for confirmation when deleting')
+
+    parser.add_argument(
+        '--dont-copy-on-create', '-d',
+        nargs='?', type=bool, const=True, default=False,
+        help='Don\'t copy directories/files defined as bind mounts to host after container creation (default: copy directories/files)')
+
+    parser.add_argument(
+        '--file', '-f',
+        default='./locker.yaml',
+        help='Specify an alternate locker file (default: locker.yaml)')
+
+    parser.add_argument(
+        '--project', '-p',
+        default=os.path.basename(os.getcwd()),
+        help='Specify an alternate project name (default: directory name)')
+
+    parser.add_argument(
+        '--restart', '-r',
+        nargs='?', type=bool, const=True, default=False,
+        help='Restart already running containers when using \"start\" command')
+
+    parser.add_argument(
+        '--no-ports', '-n',
+        nargs='?', type=bool, const=True, default=False,
+        help='Do not add/remove netfilter rules (used with command start/stop)')
+
+    parser.add_argument(
+        '--no-links', '-m',
+        nargs='?', type=bool, const=True, default=False,
+        help='Do not add/remove links (used with command start/stop)')
+
+    parser.add_argument(
+        '--no-color', '-o',
+        nargs='?', type=bool, const=True, default=False,
+        help='Do not use colored output')
+
+    parser.add_argument(
+        '--extended', '-e',
+        nargs='?', type=bool, const=True, default=False,
+        help='Show extended status report')
+
+    parser.add_argument(
+        '--timeout', '-t',
+        type=int, default=30,
+        help='Timeout for container shutdown')
+
+    parser.add_argument(
+        '--validate',
+        nargs=1, required=False,
+        help='Validate YAML configuration against the specified schema')
+
+    parser.add_argument(
+        '--add-hosts', '-a',
+        nargs='?', type=bool, const=True, default=False,
+        help='Add the containers\' hostnames to the /etc/hosts file of this host')
+
+    parser.add_argument(
+        'command',
+        nargs='?',
+        choices=['start', 'stop', 'reboot', 'rm', 'create', 'status', 'ports', 'rmports', 'links', 'rmlinks', 'cgroup', 'cleanup'],
+        help='Commmand to run')
+
+    parser.add_argument(
+        'containers',
+        nargs='*', default=None,
+        help='Space separated list of containers (default: all containers)')
+
     args_dict = vars(parser.parse_args())
     return args_dict
 

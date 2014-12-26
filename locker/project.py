@@ -12,6 +12,7 @@ import locker
 from locker.container import Container, CommandFailed
 from locker.util import break_and_add_color, rules_to_str, regex_project_name
 from locker.network import Network
+from locker.etchosts import Hosts
 import sys
 import re
 from functools import wraps
@@ -242,6 +243,8 @@ class Project(object):
                 pass
         if not self.args.get('no_links', False):
             self.links(containers=self.all_containers, auto_update=True)
+        if self.args.get('add_hosts', False):
+            self._update_etc_hosts()
 
     @container_list
     def reboot(self, *, containers=None):
@@ -274,6 +277,8 @@ class Project(object):
                 pass
         if not self.args.get('no_links', False):
             self.links(containers=self.all_containers, auto_update=True)
+        if self.args.get('add_hosts', False):
+            self._update_etc_hosts()
 
     @container_list
     def create(self, *, containers=None):
@@ -375,3 +380,27 @@ class Project(object):
             return
         self.network.stop()
 
+    def _update_etc_hosts(self):
+        ''' Add containers hostnames to /etc/hosts for name resolution
+        '''
+        logging.debug('Updating /etc/hosts')
+        etc_hosts = '/etc/hosts'
+        try:
+            hosts = Hosts(etc_hosts, logger=logging.getLogger(), lax=True)
+            num_removed = hosts.remove_by_comment('^%s_.*$' % (self.name))
+            logging.debug('Removed %d entries from %s', num_removed, etc_hosts)
+            hosts.save()
+        except Exception as exception:
+            logging.warn('Some exception occured: ', exception)
+            return
+
+        for container in [con for con in self.all_containers if con.running]:
+            for ipaddr in container.get_ips():
+                fqdn = container.yml.get('fqdn', None)
+                hostname = None
+                if fqdn:
+                    hostname = fqdn.split('.')[0]
+                names = [n for n in [fqdn, hostname, container.name] if n]
+                comment = container.name
+                hosts.add(ipaddr, names, comment)
+        hosts.save()

@@ -292,7 +292,7 @@ class Network(object):
         for ipaddr in netaddr.IPRange(network.first+1, network.last-1):
             if ipaddr not in used:
                 ipaddr = '%s/%s' % (str(ipaddr), bridge_cidr)
-                container.logger.debug('Got IP address: %s', ipaddr)
+                container.logger.debug('Found unused IP address: %s', ipaddr)
                 return ipaddr
         raise RuntimeError('Network out of IP addresses')
 

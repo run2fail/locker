@@ -29,25 +29,43 @@ Features
 
 Locker currently supports the following features:
 
-- Define groups of containers in a YAML file similar to fig's syntax
-- Create, start, stop, and remove groups or selections of containers defined in
-  the particular project
-- Show the status of containers in your project
-- Create containers as clones or based on LXC templates
-- Create an ``fstab`` file to enable bind mounted directories from the host into the
-  container(-s)
-- Optionally, bind-mounted folders may be moved from the container to the host
-  after container creation, so that you do not mount empty folders within your
-  container (needs more testing)
-- Add or remove port forwarding netfilter rules
-- Multi-colored output (can be optionally disabled)
-- (Simple) Linking of containers by adding their hostnames to ``/etc/hosts``
-- Set cgroup configuration (experimental feature)
-- Project specfic network bridge automatically created (and removed on demand)
-- IP addresses are automatically assigned to bridges and containers (``dnsmasq``
-  is not required)
-- DNS entries in the containers are set to ``8.8.8.8`` and ``8.8.4.4`` (planned
-  to be configurable in the near future)
+- Container lifecycle management
+
+    - Define groups of containers in a YAML file similar to
+      `fig's <http://fig.sh>`_ syntax
+    - Create, start, stop, and remove groups or selections of containers defined
+      in the particular project
+    - Show status report of containers in your project
+    - Create containers as clones or based on LXC templates
+
+- Data storage
+
+    - Create an ``fstab`` file to enable bind-mounted directories from the host
+      into the container(-s)
+    - Optionally, bind-mounted folders may be moved from the container to the
+      host after container creation, so that you do not mount empty folders
+      within your container on the first start
+
+- Network configuration
+
+    - Project specfic network bridge automatically created (and removed on
+      demand via command)
+    - IP addresses are automatically assigned to bridges and containers
+      (``dnsmasq`` is not required)
+    - Add or remove port forwarding netfilter rules to make services accessible
+      to other hosts
+    - Links containers by dynamically adding hostnames to ``/etc/hosts``
+    - Dynamically adds and removes the containers' hostnames in/from
+      ``/etc/hostname`` on the lxc host (must be explicitly activated)
+    - DNS entries in the containers are set to ``8.8.8.8`` and ``8.8.4.4``
+      (planned to be configurable in the near future)
+
+- Miscellaneous
+
+    - Multi-colored output (can be optionally disabled)
+    - Set container cgroup configuration, e.g., CPUs, memory, ... (experimental
+      feature)
+
 
 Challenges implementing Locker
 ------------------------------

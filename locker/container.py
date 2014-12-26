@@ -13,6 +13,7 @@ import shutil
 from locker.util import rule_to_str, regex_container_name, regex_link, regex_ports, regex_volumes, regex_cgroup
 import locker.project
 from locker.network import Network
+from locker.etchosts import Hosts
 from functools import wraps
 
 class CommandFailed(RuntimeError):
@@ -112,16 +113,24 @@ class Container(lxc.Container):
     def _network_conf(self):
         ''' Apply network configuration
         '''
-        # TODO Should check if there is any network device at all
-        self.network[0].link = self.project.network.bridge_ifname
-        self.network[0].veth_pair = self.name
-        self.network[0].ipv4 = self.project.network.get_ip(self)
-        # BUG Setting the gateway does not work as expected
-        # TODO Activate once its clear how the gateway can be set
-        #self.network[0].ipv4_gateway = self.project.network.gateway
-        self.logger.debug('Network configuration: link=%s, veth=%s, ipv4=%s, gateway=%s',
-                          self.network[0].link, self.network[0].veth_pair,
-                          self.network[0].ipv4, self.network[0].ipv4_gateway)
+        ip = self.project.network.get_ip(self)
+        gateway = self.project.network.gateway
+        link = self.project.network.bridge_ifname
+        veth_pair = self.name
+
+        #self.network[0].link = link
+        #self.network[0].veth_pair = veth_pair
+        #self.network[0].ipv4 = ip
+        #self.network[0].ipv4_gateway = gateway
+
+        self.set_config_item('lxc.network.0.link', link)
+        self.set_config_item('lxc.network.0.veth.pair', veth_pair)
+        self.set_config_item('lxc.network.0.ipv4', ip.split('/')[0])
+        self.set_config_item('lxc.network.0.ipv4.gateway', gateway)
+
+        #self.logger.debug('Network configuration: link=%s, veth=%s, ipv4=%s, gateway=%s',
+                          #self.network[0].link, self.network[0].veth_pair,
+                          #self.network[0].ipv4, self.network[0].ipv4_gateway)
         self.save_config()
 
     @return_if_not_defined
@@ -187,6 +196,8 @@ class Container(lxc.Container):
         '''
         Get IPs of the container
 
+        Sleeps for 1s between each retry.
+
         :param retries: Try a again this many times if IPs are not available yet
         :returns: List of IPs or None if the container is not defined or stopped
         '''
@@ -194,7 +205,7 @@ class Container(lxc.Container):
         while len(ips) == 0 and self.running and retries > 0:
             self.logger.debug('Waiting to acquire an IP address')
             time.sleep(1)
-            ips = lxc.Container.get_ips(self)
+            ips = lxc.Container.get_ips(self, family='inet')
             retries -= 1
         return ips
 
@@ -256,7 +267,7 @@ class Container(lxc.Container):
             except CommandFailed:
                 raise
         self._generate_fstab()
-        self._set_fqdn_hook()
+        self._set_hostname()
         self._network_conf()
         self._enable_dns()
         self.logger.info('Starting container')
@@ -474,19 +485,17 @@ class Container(lxc.Container):
                 self._add_dnat_rule(container_ip, port_conf, locker_nat_chain)
                 self._add_forward_rule(container_ip, port_conf, filter_forward)
 
-    def _set_fqdn_hook(self):
-        ''' Set FQDN hook script to set the FQDN
+    def _set_hostname(self):
+        ''' Set containers hostname
 
-        This works when the container and when /etc is a bind-mount as long as
-        / and /locker are not covered by another mount. The hook script must be
-        inside the containers namespace.
+        Sets the containers hostname and FQDN in /etc/hosts and /etc/hostname if
+        fqdn is specified in the YAML configuration.
         '''
-        if 'fqdn' not in self.yml:
-            self.logger.debug('No FQDN in configuration')
+        fqdn = self.yml.get('fqdn', None)
+        if not fqdn:
+            self.logger.debug('Empty fqdn')
             return
-        fqdn = self.yml['fqdn']
         hostname = fqdn.split('.')[0]
-        self.logger.debug('Setting FQDN hook script')
         try:
             rootfs = self.get_config_item('lxc.rootfs')
         except KeyError:
@@ -494,24 +503,17 @@ class Container(lxc.Container):
                               self.defined)
             return
         assert len(rootfs)
-        # TODO Maybe we should mount /usr/share/locker/hooks from the host
-        # to /locker in the container? This would enable to have a common
-        # script for all containers.
-        hooks_dir = '%s/locker/hooks'  % (rootfs)
-        if not os.path.isdir(hooks_dir):
-            os.makedirs(hooks_dir)
-        hook = hooks_dir + '/mount'
-        with open(hook, 'w+') as wfile:
-            # TODO Ugly
-            script = '''\
-#!/bin/sh
-sed -i 's|^127\.0\.1\.1.*$|127.0.1.1   %s %s|g' %s/etc/hosts
-echo "%s" > "%s/etc/hostname"
-''' % (fqdn, hostname, rootfs, hostname, rootfs)
-            wfile.write(script)
-        os.chmod(hook, 0o754)
-        self.set_config_item('lxc.hook.mount', hook)
-        self.save_config()
+        etc_hosts = '%s/etc/hosts' % (rootfs)
+        try:
+            hosts = Hosts(etc_hosts, self.logger)
+            names = [fqdn, hostname]
+            hosts.update_ip('127.0.1.1', names)
+            hosts.save()
+        except:
+            pass
+        etc_hostname = '%s/etc/hostname' % (rootfs)
+        with open(etc_hostname, 'w+') as hostname_fd:
+            hostname_fd.write('%s\d' % hostname)
 
     def _generate_fstab(self):
         ''' Generate a file system table for the container
@@ -638,41 +640,17 @@ echo "%s" > "%s/etc/hostname"
 
         Links the container to any other container that is specified in the
         particular "links" subtree in YAML file.
-        TODO Refactor, the _link_container is not really a descriptive/matching
-             name
 
         :param auto_update: Set to True to suppress some logger output because
                             the container to link to is purposely stopped and
                             unavailable.
         '''
-
-        def _link_container(self, name, alias=None, auto_update=False):
-            self.logger.debug('Linking with %s', name)
-            container = self.project.get_container(name)
-            if not container:
-                self.logger.error('Cannot link with unavailable container: %s', name)
-                return
-            if not container.running:
-                # Suppress message when it's clear that the particular container may have been stopped
-                if auto_update:
-                    self.logger.debug('Cannot link with stopped container: %s', name)
-                else:
-                    self.logger.warning('Cannot link with stopped container: %s', name)
-                return
-            ips = container.get_ips()
-            aliases = list()
-            if 'fqdn' in container.yml:
-                aliases.append(container.yml['fqdn'])
-            if alias:
-                aliases.append(alias)
-            entries = [(ip, name, aliases) for ip in ips]
-            self._update_etc_hosts(entries)
-
         self.logger.debug('Updating links')
         if not 'links' in self.yml:
             self.logger.debug('No links defined')
             return
         link_regex = re.compile(regex_link)
+        hosts_entries = list()
         for link in self.yml['links']:
             match = link_regex.match(link)
             if not match:
@@ -680,8 +658,21 @@ echo "%s" > "%s/etc/hostname"
                 continue
             group_dict = match.groupdict()
             name = group_dict['name']
-            alias = group_dict.get('alias', None)
-            _link_container(self, name, alias, auto_update)
+            container = self.project.get_container(name)
+            if not container:
+                self.logger.error('Cannot link with unavailable container: %s', name)
+                continue
+            if not container.running:
+                # Suppress message when it's clear that the particular container may have been stopped
+                if auto_update:
+                    self.logger.debug('Cannot link with stopped container: %s', name)
+                else:
+                    self.logger.warning('Cannot link with stopped container: %s', name)
+                continue
+            names = [container.yml.get('fqdn', None), name, group_dict.get('alias', None)]
+            names = [x for x in names if x]
+            hosts_entries.extend([(ip, name, names) for ip in container.get_ips()])
+        self._update_etc_hosts(hosts_entries)
 
     def _update_etc_hosts(self, entries):
         '''
@@ -691,29 +682,20 @@ echo "%s" > "%s/etc/hostname"
         then adds the specified ones.
         Locker entries are suffixed with the project name as comment
 
-        :params: List of entries to add
+        :params: List of entries to add, format (ipaddr, container name, names)
         '''
         rootfs = self.get_config_item('lxc.rootfs')
         assert len(rootfs)
         etc_hosts = '%s/etc/hosts' % (rootfs)
         try:
-            with open(etc_hosts, 'r') as etc_hosts_rfile:
-                lines = etc_hosts_rfile.readlines()
-        except FileNotFoundError:
-            self.logger.warn('/etc/hosts does not exists inside rootfs')
-            return
-        # TODO Use better regex
-        regex = re.compile('^.* # (%s_.+)$' % self.project.name)
-        with open(etc_hosts, 'w+') as etc_hosts_wfile:
-            for line in lines:
-                if regex.match(line):
-                    self.logger.debug('Removing from /etc/hosts: %s', line[:-1])
-                    continue
-                etc_hosts_wfile.write(line)
-            for ipaddr, name, aliases in entries:
-                new_entry = '%s %s %s # %s_%s' % (ipaddr, name, ' '.join(aliases), self.project.name, name)
-                self.logger.debug('Adding to /etc/hosts: %s', new_entry)
-                etc_hosts_wfile.write('%s\n' % (new_entry))
+            hosts = Hosts(etc_hosts, self.logger)
+            hosts.remove_by_comment('^%s_.*$' % self.project.name)
+            for ipaddr, name, names in entries:
+                comment = '%s_%s' % (self.project.name, name)
+                hosts.add(ipaddr, names, comment)
+            hosts.save()
+        except:
+            pass
 
     def rmlinks(self):
         ''' Update /etc/hosts by removing all links
