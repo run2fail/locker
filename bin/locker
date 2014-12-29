@@ -38,88 +38,121 @@ def parse_args():
 
     :returns: Dictionary of the parsed arguments
     '''
-    parser = argparse.ArgumentParser(description='Manage LXC containers.')
+    parser = argparse.ArgumentParser(description='Manage LXC containers')
+
+    ############################################################################
 
     parser.add_argument(
         '--verbose', '-v',
-        nargs='?', type=bool, const=True, default=False,
+        const=True, default=False, action='store_const',
         help='Show more output')
 
     parser.add_argument(
-        '--version', nargs='?',
-        type=bool, const=True, default=False,
+        '--version',
+        const=True, default=False, action='store_const',
         help='Print version and exit')
-
-    parser.add_argument(
-        '--delete-dont-ask', '-x',
-        nargs='?', type=bool, const=True, default=False,
-        help='Don\'t ask for confirmation when deleting')
-
-    parser.add_argument(
-        '--dont-copy-on-create', '-d',
-        nargs='?', type=bool, const=True, default=False,
-        help='Don\'t copy directories/files defined as bind mounts to host after container creation (default: copy directories/files)')
 
     parser.add_argument(
         '--file', '-f',
         default='./locker.yaml',
-        help='Specify an alternate locker file (default: locker.yaml)')
+        help='Specify an alternate Locker file (default: ./locker.yaml)')
 
     parser.add_argument(
         '--project', '-p',
         default=os.path.basename(os.getcwd()),
-        help='Specify an alternate project name (default: directory name)')
-
-    parser.add_argument(
-        '--restart', '-r',
-        nargs='?', type=bool, const=True, default=False,
-        help='Restart already running containers when using \"start\" command')
-
-    parser.add_argument(
-        '--no-ports', '-n',
-        nargs='?', type=bool, const=True, default=False,
-        help='Do not add/remove netfilter rules (used with command start/stop)')
-
-    parser.add_argument(
-        '--no-links', '-m',
-        nargs='?', type=bool, const=True, default=False,
-        help='Do not add/remove links (used with command start/stop)')
+        help='Specify an alternate project name (default: current directory name)')
 
     parser.add_argument(
         '--no-color', '-o',
-        nargs='?', type=bool, const=True, default=False,
+        const=True, default=False, action='store_const',
         help='Do not use colored output')
-
-    parser.add_argument(
-        '--extended', '-e',
-        nargs='?', type=bool, const=True, default=False,
-        help='Show extended status report')
-
-    parser.add_argument(
-        '--timeout', '-t',
-        type=int, default=30,
-        help='Timeout for container shutdown')
 
     parser.add_argument(
         '--validate',
         nargs=1, required=False,
         help='Validate YAML configuration against the specified schema')
 
-    parser.add_argument(
-        '--add-hosts', '-a',
-        nargs='?', type=bool, const=True, default=False,
-        help='Add the containers\' hostnames to the /etc/hosts file of this host')
+    subparsers = parser.add_subparsers(help='sub-command help', dest='command')
+    subparsers.required = True
 
-    parser.add_argument(
-        'command',
-        nargs='?',
-        choices=['start', 'stop', 'reboot', 'rm', 'create', 'status', 'ports', 'rmports', 'links', 'rmlinks', 'cgroup', 'cleanup'],
-        help='Commmand to run')
+    ############################################################################
 
-    parser.add_argument(
-        'containers',
-        nargs='*', default=None,
-        help='Space separated list of containers (default: all containers)')
+    subparser_rm = subparsers.add_parser('rm', help='Delete container')
+    subparser_rm.add_argument(
+        '--delete-dont-ask', '-x',
+        const=True, default=False, action='store_const',
+        help='Don\'t ask for confirmation when deleting')
+
+    ############################################################################
+
+    subparser_create = subparsers.add_parser('create', help='Create container')
+    subparser_create.add_argument(
+        '--dont-copy-on-create', '-d',
+        const=True, default=False, action='store_const',
+        help='Don\'t copy directories/files defined as bind mounts to host after container creation (default: copy directories/files)')
+
+    ############################################################################
+
+    subparser_start = subparsers.add_parser('start', help='Start container')
+    subparser_stop = subparsers.add_parser('stop', help='Stop container')
+    subparser_reboot = subparsers.add_parser('reboot', help='Reboot container')
+
+    subparser_start.add_argument(
+        '--restart', '-r',
+        const=True, default=False, action='store_const',
+        help='Restart already running containers when using \"start\" command')
+
+    for sub in [subparser_start, subparser_stop]:
+        sub.add_argument(
+            '--no-ports', '-n',
+            const=True, default=False, action='store_const',
+            help='Do not add/remove netfilter rules (used with command start/stop)')
+
+        sub.add_argument(
+            '--add-hosts', '-a',
+            const=True, default=False, action='store_const',
+            help='Add the containers\' hostnames to the /etc/hosts file of this host')
+
+        sub.add_argument(
+            '--no-links', '-m',
+            const=True, default=False, action='store_const',
+            help='Do not add/remove links (used with command start/stop)')
+
+    for sub in [subparser_start, subparser_stop, subparser_reboot]:
+        sub.add_argument(
+            '--timeout', '-t',
+            type=int, default=30,
+            help='Timeout for container shutdown')
+
+    ############################################################################
+
+    subparser_status = subparsers.add_parser('status', help='Show container status')
+
+    subparser_status.add_argument(
+        '--extended', '-e',
+        const=True, default=False, action='store_const',
+        help='Show extended status report')
+
+    ############################################################################
+
+    subparser_port = subparsers.add_parser('ports', help='Add port forwarding netfilter rules')
+    subparser_rmports = subparsers.add_parser('rmports', help='Remove port forwarding netfilter rules')
+    subparser_links = subparsers.add_parser('links', help='Add links between containers')
+    subparser_rmlinks = subparsers.add_parser('rmlinks', help='Remove links between containers')
+    subparser_cgroup = subparsers.add_parser('cgroup', help='Set cgroup configuration')
+    subparser_cleanup = subparsers.add_parser('cleanup', help='Stop containers, remove netfilter rules and bridge')
+
+    ############################################################################
+
+    for sub in [subparser_start, subparser_stop, subparser_reboot,
+                subparser_create, subparser_rm, subparser_status,
+                subparser_port, subparser_rmports,
+                subparser_links, subparser_rmlinks,
+                subparser_cgroup]:
+        sub.add_argument(
+            'containers',
+            nargs='*', default=[],
+            help='Space separated list of containers (default: all containers)')
 
     args_dict = vars(parser.parse_args())
     return args_dict

@@ -104,7 +104,9 @@ class Container(lxc.Container):
             container = Container(pname, yml[name], project, color)
 
             all_containers.append(container)
-            if len(project.args['containers']) and pname not in project.args['containers']:
+            if ('containers' in project.args and # required for cleanup command
+                len(project.args['containers']) and
+                pname not in project.args['containers']):
                 continue
             containers.append(container)
         logging.debug('Selected containers: %s', [con.name for con in containers])

@@ -95,9 +95,17 @@ Under construction...
 Installation
 ------------
 
+Using ``easy_install``:
+
 .. code:: bash
 
    $ ./setup.py install
+
+Using ``pip`` (resp. the python3 version):
+
+.. code:: bash
+
+   $ pip3 install .
 
 
 Defining a Project
@@ -140,7 +148,7 @@ An example project definition in YAML:
         - "cpuset.cpus=0,1"
         - "cpu.shares=512"
 
-The YAML file defines a locker ``project``, i.e., a group of containers. The
+The YAML file defines a Locker ``project``, i.e., a group of containers. The
 ``project`` name may be provided via a command line parameter and derived
 from the directory's name as default.
 
@@ -198,110 +206,87 @@ module must be available.
 Managing the Lifecycle
 ----------------------
 
+Example session (with ``locker.yaml`` in the current directory):
+
 .. image:: ./docs/demo.gif
 
-Creating, starting, stopping, removing containers and netfilter modifications
-(some output omitted):
-
-.. code::
-
-    $ locker create
-    [...]
-    $ locker start locker_web locker_db
-    2014-12-07 12:56:23,596, INFO, Starting container locker_db
-    2014-12-07 12:56:24,758, INFO, Starting container locker_web
-    $ locker stop locker_web
-    2014-12-07 12:57:14,198, INFO, Stopping container locker_web
-    $ locker rm locker_web
-    Delete locker_web? [y/N]: y
-    2014-12-07 12:57:32,940, WARNING, Container locker_web is already stopped
-    $ locker ports
-    2014-12-07 13:47:56,917, INFO, Adding port forwarding rules for locker_db
-    2014-12-07 13:47:56,944, INFO, No port forwarding rules for locker_foo
-    2014-12-07 13:47:56,947, INFO, locker_web is not running, skipping adding ports rules
-    $ locker rmports
-    2014-12-07 13:48:51,413, INFO, Removing netfilter rules
-    2014-12-07 13:48:51,416, WARNING, Container locker_db is still running, services will not be available anymore
-    2014-12-07 13:48:51,422, INFO, Removing DNAT udp rule of "locker_db"
-    2014-12-07 13:48:51,424, INFO, Removing DNAT tcp rule of "locker_db"
-    2014-12-07 13:48:51,434, INFO, Removing FORWARD udp rule of "locker_db"
-    2014-12-07 13:48:51,435, INFO, Removing FORWARD tcp rule of "locker_db"
-
-Container Status
+Help & Commands
 ----------------
 
-Example output:
+Locker's command line interface is split in multiple parts:
+
+1. General arguments
+2. Command
+3. Command specific arguments
+4. Optional list of containers
+
+Locker's default help output shows the general (optional) arguments and the
+commands (positional arguments):
 
 .. code::
 
-    $ locker status
-      Def.   Name         FQDN             State     IPs          Ports                          Links
-    --------------------------------------------------------------------------------------------------------
-      True   locker_db    db.example.net   RUNNING   10.0.3.118   0.0.0.0:8001->8001/tcp
-                                                                  0.0.0.0:8000->8000/udp
-                                                                  0.0.0.0:8000->8000/tcp
-      True   locker_foo                    RUNNING   10.0.3.94                                   locker_db
-      True   locker_web                    RUNNING   10.0.3.21    192.168.2.123:8003->8003/udp   locker_db
-                                                                  192.168.2.123:8003->8003/tcp
-                                                                  192.168.2.123:8002->8002/tcp
+    $ locker --help
+    usage: locker [-h] [--verbose] [--version] [--file FILE] [--project PROJECT]
+              [--no-color] [--validate VALIDATE]
+              {rm,create,start,stop,reboot,status,ports,rmports,links,rmlinks,cgroup,cleanup}
+              ...
 
-Help
-----
-
-locker's help output:
-
-.. code::
-
-    usage: locker [-h] [--verbose [VERBOSE]] [--version [VERSION]]
-                [--delete-dont-ask [DELETE_DONT_ASK]]
-                [--dont-copy-on-create [DONT_COPY_ON_CREATE]] [--file FILE]
-                [--project PROJECT] [--restart [RESTART]]
-                [--no-ports [NO_PORTS]] [--no-links [NO_LINKS]]
-                [--no-color [NO_COLOR]] [--extended [EXTENDED]]
-                [--timeout TIMEOUT] [--validate VALIDATE]
-                [{start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks,cgroup,cleanup}]
-                [containers [containers ...]]
-
-    Manage LXC containers.
+    Manage LXC containers
 
     positional arguments:
-    {start,stop,reboot,rm,create,status,ports,rmports,links,rmlinks,cgroup,cleanup}
-                            Commmand to run (default=start)
+    {rm,create,start,stop,reboot,status,ports,rmports,links,rmlinks,cgroup,cleanup}
+                            sub-command help
+        rm                  Delete container
+        create              Create container
+        start               Start container
+        stop                Stop container
+        reboot              Reboot container
+        status              Show container status
+        ports               Add port forwarding netfilter rules
+        rmports             Remove port forwarding netfilter rules
+        links               Add links between containers
+        rmlinks             Remove links between containers
+        cgroup              Set cgroup configuration
+        cleanup             Stop containers, remove netfilter rules and bridge
+
+    optional arguments:
+    -h, --help            show this help message and exit
+    --verbose, -v         Show more output
+    --version             Print version and exit
+    --file FILE, -f FILE  Specify an alternate Locker file (default:
+                            ./locker.yaml)
+    --project PROJECT, -p PROJECT
+                            Specify an alternate project name (default: current
+                            directory name)
+    --no-color, -o        Do not use colored output
+    --validate VALIDATE   Validate YAML configuration against the specified
+
+You can get more information about specific commands and their arguments as
+follows:
+
+.. code::
+
+    $ locker start --help
+    usage: locker start [-h] [--restart] [--no-ports] [--add-hosts] [--no-links]
+                        [--timeout TIMEOUT]
+                        [containers [containers ...]]
+
+    positional arguments:
     containers            Space separated list of containers (default: all
                             containers)
 
     optional arguments:
     -h, --help            show this help message and exit
-    --verbose [VERBOSE], -v [VERBOSE]
-                            Show more output
-    --version [VERSION]   Print version and exit
-    --delete-dont-ask [DELETE_DONT_ASK], -x [DELETE_DONT_ASK]
-                            Don't ask for confirmation when deleting
-    --dont-copy-on-create [DONT_COPY_ON_CREATE], -d [DONT_COPY_ON_CREATE]
-                            Don't copy directories/files defined as bind mounts to
-                            host after container creation (default: copy
-                            directories/files)
-    --file FILE, -f FILE  Specify an alternate locker file (default:
-                            locker.yaml)
-    --project PROJECT, -p PROJECT
-                            Specify an alternate project name (default: directory
-                            name)
-    --restart [RESTART], -r [RESTART]
-                            Restart already running containers when using "start"
+    --restart, -r         Restart already running containers when using "start"
                             command
-    --no-ports [NO_PORTS], -n [NO_PORTS]
-                            Do not add/remove netfilter rules (used with command
+    --no-ports, -n        Do not add/remove netfilter rules (used with command
                             start/stop)
-    --no-links [NO_LINKS], -m [NO_LINKS]
-                            Do not add/remove links (used with command start/stop)
-    --no-color [NO_COLOR], -o [NO_COLOR]
-                            Do not use colored output
-    --extended [EXTENDED], -e [EXTENDED]
-                            Show extended status report
+    --add-hosts, -a       Add the containers' hostnames to the /etc/hosts file
+                            of this host
+    --no-links, -m        Do not add/remove links (used with command start/stop)
     --timeout TIMEOUT, -t TIMEOUT
                             Timeout for container shutdown
-    --validate VALIDATE   Validate YAML configuration against the specified
-                            schema
+
 
 About the commands:
 
