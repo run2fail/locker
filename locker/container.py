@@ -15,6 +15,8 @@ import locker.project
 from locker.network import Network
 from locker.etchosts import Hosts
 from functools import wraps
+import netaddr
+from collections import OrderedDict
 
 class CommandFailed(RuntimeError):
     ''' Generic command failed RuntimeError '''
@@ -135,8 +137,34 @@ class Container(lxc.Container):
                           #self.network[0].ipv4, self.network[0].ipv4_gateway)
         self.save_config()
 
+    def _get_dns(self):
+        ''' Get DNS server configuration as defined in the yml configuration
+
+        Creates a list of DNS servers to use by this container based on the YAML
+        configuration file. The following are supported:
+        - Magic word "$bridge": takes the project bridges IP address, e.g., if
+            you are running a custom dnsmasq process listening on this interface
+        - Magic word "$copy": copies the DNS from the container's host system
+        - Any valid IP address as string
+
+        :returns: list of DNS IP addresses (as strings)
+        '''
+        list_of_dns = list()
+        for dns in self.yml.get('dns', []):
+            if dns == "$bridge":
+                list_of_dns.append(self.project.network.gateway)
+            elif dns == "$copy":
+                list_of_dns.extend(Network.get_dns_from_host())
+            else:
+                try:
+                    list_of_dns.append(str(netaddr.IPAddress(dns)))
+                except netaddr.AddrFormatError:
+                    self.logger.warn('Invalid DNS address specified: %s', dns)
+        # removed duplicates but keep original order
+        return list(OrderedDict.fromkeys(list_of_dns))
+
     @return_if_not_defined
-    def _enable_dns(self, dns=['8.8.8.8', '8.8.4.4'], files=['/etc/resolv.conf', '/etc/resolvconf/resolv.conf.d/base']):
+    def _enable_dns(self, dns=[], files=['/etc/resolv.conf', '/etc/resolvconf/resolv.conf.d/base']):
         ''' Set DNS servers in /etc/resolv.conf and further files
 
         Write the specified DNS server IP addresses as name server entries to
@@ -271,7 +299,7 @@ class Container(lxc.Container):
         self._generate_fstab()
         self._set_hostname()
         self._network_conf()
-        self._enable_dns()
+        self._enable_dns(dns=self._get_dns())
         self.logger.info('Starting container')
         lxc.Container.start(self)
         if not self.running:

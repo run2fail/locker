@@ -33,3 +33,7 @@ mapping:
                 type:       seq
                 sequence:
                     - type:     str
+            "dns":
+                type:       seq
+                sequence:
+                    - type:     str

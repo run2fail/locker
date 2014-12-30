@@ -30,3 +30,7 @@ foo:
   - "memory.limit_in_bytes=200000000"
   - "cpuset.cpus=0,1"
   - "cpu.shares=512"
+  dns:
+  - "8.8.8.8"
+  - "$bridge"
+  - "$copy"

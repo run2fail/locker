@@ -57,8 +57,9 @@ Locker currently supports the following features:
   - Links containers by dynamically adding hostnames to ``/etc/hosts``
   - Dynamically adds and removes the containers' hostnames in/from
     ``/etc/hostname`` on the lxc host (must be explicitly activated)
-  - DNS entries in the containers are set to ``8.8.8.8`` and ``8.8.4.4``
-    (planned to be configurable in the near future)
+  - DNS entries in the containers are automatically set based on your
+    specification (copy the host system's nameservers, use the bridge IP, or
+    use custom provided addresses)
 
 - Miscellaneous
 
@@ -147,10 +148,14 @@ An example project definition in YAML:
         - "memory.limit_in_bytes=200000000"
         - "cpuset.cpus=0,1"
         - "cpu.shares=512"
+        dns:
+        - "8.8.8.8"
+        - "$bridge"
+        - "$copy"
 
 The YAML file defines a Locker ``project``, i.e., a group of containers. The
-``project`` name may be provided via a command line parameter and derived
-from the directory's name as default.
+``project`` name may be provided via a command line parameter and is derived
+from the current directory's name as default.
 
 The first level in the YAML configuration are container names (``name``).
 Containers are created as ``clone`` of other containers available on the system
@@ -163,12 +168,15 @@ containers with the same name in different projects.
 
 ``volumes`` define bind-mounts of directories on the host system into the
 container. You can use some simple placeholders like ``$name``, ``$project``,
-and ``$fqdn`` in your volume definitions.
+and ``$fqdn`` in your volume definitions. The format is
+``DIR_ON_THE_HOST:DIR_IN_THE_CONTAINER``.
 
 Different formats of port forwarding rules (``ports``) are supported.  The
 format is ``HOST_IP:HOST_PORT:CONTAINER_PORT/PROTOCOL`` where as ``HOST_IP`` and
 ``PROTOCOL`` are optional. If the protocol is not specified, the default
-(``tcp``) will be used to configure netfilter rules.
+(``tcp``) will be used to configure netfilter rules. If ``HOST_IP`` is missing,
+IP datagrams destined to any interface/IP address on this host will be
+forwarded.
 
 The ``fqdn`` attribute enables to set the container's hostname
 and full qualified domain name (``fqdn``). This is realized by a lxc hook script
@@ -186,6 +194,18 @@ You can apply ``cgroup`` settings by providing a list of strings where each
 string is of the format ``key=value``. All ``cgroup`` settings are also written
 to the container's ``config`` file and are hence set even when you use
 ``lxc-start`` to start containers later on. Be careful with this feature.
+
+Nameservers can be specified via the ``dns`` section. You can specify addresses
+as follows:
+
+- Specify the IP address as string
+- Use the magic work ``$bridge`` to use the project's bridge IP address
+  (e.g. if you are running a custom dnsmasq process listening on this interface)
+- Use the magic word ``$copy`` which will copy the nameserver entries from
+  ``/etc/resolv.conf`` into the container (excluding loopback addresses!)
+
+Locker will keep the order of the speficied entries. Hence specify your primary
+nameserver first.
 
 You can find some examples in the `docs/examples/ <./docs/examples>`_ directory.
 

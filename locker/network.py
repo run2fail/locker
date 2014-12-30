@@ -8,6 +8,8 @@ import locker
 import logging
 import netaddr
 import itertools
+import re
+from locker.util import regex_ip
 
 class Network(object):
     '''
@@ -309,6 +311,39 @@ class Network(object):
         if all_ips:
             return tuples
         return tuples[0]
+
+    @staticmethod
+    def get_dns_from_host():
+        ''' Return list of DNS servers form the host system
+
+        Extracts nameservers from /etc/resolv.conf but filters loopback
+        addresses, e.g. 127.0.1.1
+
+        :returns: list of DNS IP addresses (as strings)
+        '''
+        list_of_dns = list()
+        try:
+            with open('/etc/resolv.conf', 'r') as resolv_fd:
+                # TODO Check if this isn't actually to restrictive
+                # TODO Support IPv6 in the future
+                regex = re.compile(r'^\s*nameserver\s+(' + regex_ip + r')\s*$')
+                for line in resolv_fd.readlines():
+                    match = regex.match(line)
+                    if match:
+                        dns = match.group(1)
+                        try:
+                            ip = netaddr.IPAddress(dns)
+                        except netaddr.AddrFormatError:
+                            logging.warn('Invalid DNS address in /etc/hosts: %s', dns)
+                            continue
+                        if ip.is_loopback():
+                            logging.debug('Ignoring address from /etc/hosts: %s', ip)
+                            continue
+                        logging.debug('Found valid DNS address in /etc/hosts: %s', ip)
+                        list_of_dns.append(str(ip))
+        except (FileNotFoundError, PermissionError) as exception:
+            logging.warn('Could not read /etc/resolv.conf: %s', exception)
+        return list_of_dns
 
     def stop(self):
         ''' Delete all netfilter rules
