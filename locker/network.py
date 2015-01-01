@@ -2,14 +2,25 @@
 Network related functionality like bridge and netfilter setup
 '''
 
-import pyroute2
+import itertools
+import logging
+import re
+
 import iptc
 import locker
-import logging
 import netaddr
-import itertools
-import re
+import pyroute2
 from locker.util import regex_ip
+
+
+class BridgeUnavailable(Exception):
+    ''' Bridge device does not exist
+
+    Raised if the project specific bridge is unavailable, i.e., it cannot be
+    access by the current user (due to privileges or because it has not yet
+    been created).
+    '''
+    pass
 
 class Network(object):
     '''
@@ -20,7 +31,7 @@ class Network(object):
         ''' Calls start() to setup netfilter rules and bridge
         '''
         self.project = project
-        self.start()
+        self._bridge = self._get_existing_bridge()
 
     @property
     def project(self):
@@ -37,6 +48,8 @@ class Network(object):
     @property
     def bridge(self):
         ''' Get bridge assigned to the project '''
+        if not self._bridge:
+            raise BridgeUnavailable()
         return self._bridge
 
     @bridge.setter
@@ -131,7 +144,7 @@ class Network(object):
         ''' Sets bridge and netfilter rules up
         '''
         self._setup_locker_chain()
-        self._create_bridge('locker_%s' % self.project.name)
+        self._create_bridge()
         self._enable_nat()
 
     def _enable_nat(self):
@@ -175,20 +188,41 @@ class Network(object):
     def _disable_nat(self):
         ''' Remove netfilter rules that enable direct communication from the containers
         '''
+        try:
+            bridge_ifname = self.bridge_ifname
+        except BridgeUnavailable:
+            return
+
         filter_table = iptc.Table(iptc.Table.FILTER)
         forward_chain = iptc.Chain(filter_table, 'FORWARD')
-        Network._delete_if_comment(self.bridge_ifname, filter_table, forward_chain)
+        Network._delete_if_comment(bridge_ifname, filter_table, forward_chain)
 
         nat_table = iptc.Table(iptc.Table.NAT)
         postrouting_chain = iptc.Chain(nat_table, 'POSTROUTING')
-        Network._delete_if_comment(self.bridge_ifname, nat_table, postrouting_chain)
+        Network._delete_if_comment(bridge_ifname, nat_table, postrouting_chain)
 
-    def _create_bridge(self, bridge_ifname):
+    def _get_existing_bridge(self):
+        ''' Get bridge device if it exists
+
+        :returns: pyroute2.ipdb.interface.Interface if found, else None
+        '''
+        bridge_ifname = 'locker_%s' % self.project.name
+        ipdb = pyroute2.IPDB()
+        try:
+            bridge = ipdb.by_name[bridge_ifname]
+        except KeyError:
+            logging.debug('Bridge was not found: %s', bridge_ifname)
+            return None
+        finally:
+            ipdb.release()
+        return bridge
+
+    def _create_bridge(self):
         ''' Create project specific bridge interface
 
-        :param bridge_ifname: Name of the bridge
         :raises: Any exception that pyroute2 may raise
         '''
+        bridge_ifname = 'locker_%s' % self.project.name
         ipdb = pyroute2.IPDB()
         try:
             if not bridge_ifname in ipdb.by_name.keys():
@@ -207,20 +241,22 @@ class Network(object):
         finally:
             ipdb.release()
 
-    def _delete_bridge(self, bridge_ifname):
+    def _delete_bridge(self):
         ''' Delete project specific bridge
 
         :param bridge_ifname: Name of the bridge
         :raises: Any exception that pyroute2 may raise
         '''
+        try:
+            bridge_ifname = self.bridge_ifname
+        except BridgeUnavailable:
+            return
+
         ipdb = pyroute2.IPDB()
         try:
-            try:
-                with ipdb.by_name[bridge_ifname] as brdev:
-                    logging.info('Deleting bridge: %s', bridge_ifname)
-                    brdev.remove()
-            except KeyError:
-                logging.debug('Bridge does not exist: %s', bridge_ifname)
+            with ipdb.by_name[bridge_ifname] as brdev:
+                logging.info('Deleting bridge: %s', bridge_ifname)
+                brdev.remove()
         except Exception as exception:
             logging.error('Could not delete bridge: %s', exception)
             raise
@@ -355,5 +391,4 @@ class Network(object):
         - rules from POSTROUTING chain, NAT table
         '''
         self._disable_nat()
-        self._delete_bridge(self.bridge_ifname)
-
+        self._delete_bridge()

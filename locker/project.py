@@ -5,17 +5,18 @@ a Locker command and may handle selected containers in the project.
 '''
 
 import logging
-import iptc
-from colorama import Fore
-import prettytable
-import locker
-from locker.container import Container, CommandFailed
-from locker.util import break_and_add_color, rules_to_str, regex_project_name
-from locker.network import Network
-from locker.etchosts import Hosts
-import sys
 import re
+import sys
 from functools import wraps
+
+import locker
+import prettytable
+from colorama import Fore
+from locker.container import CommandFailed, Container
+from locker.etchosts import Hosts
+from locker.network import Network
+from locker.util import break_and_add_color, regex_project_name, rules_to_str
+
 
 def container_list(func):
     ''' Set value of "containers" parameter
@@ -28,6 +29,7 @@ def container_list(func):
     '''
     @wraps(func)
     def container_list_wrapper(*args, **kwargs):
+        ''' Sets containers keyword argument if necessary '''
         if 'containers' not in kwargs or not kwargs['containers']:
             kwargs['containers'] = args[0].containers
         return func(*args, **kwargs)
@@ -73,7 +75,8 @@ class Project(object):
         if not isinstance(value, list):
             raise TypeError('Invalid type for container: %s' % type(value))
         if len([x for x in value if not isinstance(x, locker.Container)]):
-            raise TypeError('List contains invalid type: [%s]' % ','.join([type(x) for x in value]))
+            raise TypeError('List contains invalid type: [%s]' %
+                            ','.join([type(x) for x in value]))
         self._containers = value
 
     @property
@@ -87,7 +90,8 @@ class Project(object):
         if not isinstance(value, list):
             raise TypeError('Invalid type for all_containers: %s' % type(value))
         if len([x for x in value if not isinstance(x, locker.Container)]):
-            raise TypeError('List contains invalid type: [%s]' % ','.join([type(x) for x in value]))
+            raise TypeError('List contains invalid type: [%s]' %
+                            ','.join([type(x) for x in value]))
         self._all_containers = value
 
     @property
@@ -141,39 +145,11 @@ class Project(object):
                 return con
         return None
 
-    @staticmethod
-    def get_cgroup_item(container, key):
-        ''' Get cgroup item
-
-        Tries to get the cgroup item and returns only single item if a list
-        was returned
-
-        :param container: The container to query the cgroup item
-        :param key: The key / name of the cgroup item
-        :returns: cgroup item
-
-        TODO Should be moved to locker.Container
-        '''
-        container.logger.debug('Getting cgroup item: %s', key)
-        try:
-            value = container.get_cgroup_item(key)
-        except KeyError:
-            # get_config_item() can return either
-            # - an empty string
-            # - a list with a single value
-            # - something else that I do not expect
-            value = container.get_config_item('lxc.cgroup.' + key)
-            if value == '':
-                pass
-            elif isinstance(value, list) and len(value) == 1:
-                value = value[0]
-            else:
-                raise ValueError('Unexpected value for cgroup item: %s = %s' % (key, value))
-        return value
-
     @container_list
     def status(self, *, containers=None):
         ''' Show status of all project specific containers
+
+        TODO Status report functionality requires some refactoring
 
         :param containers: List of containers or None (== all containers)
         '''
@@ -206,9 +182,9 @@ class Project(object):
             if not self.args.get('extended', False):
                 table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
             else:
-                cpus = Project.get_cgroup_item(container, 'cpuset.cpus')
-                cpu_shares = Project.get_cgroup_item(container, 'cpu.shares')
-                mem_limit = Project.get_cgroup_item(container, 'memory.limit_in_bytes')
+                cpus = container.get_cgroup_item('cpuset.cpus')
+                cpu_shares = container.get_cgroup_item('cpu.shares')
+                mem_limit = container.get_cgroup_item('memory.limit_in_bytes')
                 if not mem_limit or int(mem_limit) == 2**64 - 1:
                     mem_limit = 'unlimited'
                 else:
@@ -233,6 +209,7 @@ class Project(object):
 
         :param containers: List of containers or None (== all containers)
         '''
+        self.network.start()
         for container in containers:
             try:
                 container.start()

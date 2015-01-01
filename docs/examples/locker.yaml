@@ -20,6 +20,10 @@ web:
    - "/opt/data/$project_$name/var_log:/var/log"
   links:
    - "db:database"
+  dns: &default_dns
+  - "8.8.8.8"
+  - "$bridge"
+  - "$copy"
 foo:
   template:
     name: "ubuntu"
@@ -30,7 +34,4 @@ foo:
   - "memory.limit_in_bytes=200000000"
   - "cpuset.cpus=0,1"
   - "cpu.shares=512"
-  dns:
-  - "8.8.8.8"
-  - "$bridge"
-  - "$copy"
+  dns: *default_dns

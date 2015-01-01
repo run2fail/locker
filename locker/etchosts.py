@@ -3,9 +3,11 @@ A parser and manager for the /etc/hosts file
 '''
 
 import logging
-import netaddr
 import re
+
+import netaddr
 import prettytable
+
 
 class InvalidLine(Exception):
     pass
@@ -287,4 +289,3 @@ class Hosts(object):
         with open(outfile, 'w') as out_fd:
             out_fd.write(self.pprint())
             out_fd.write('\n')
-

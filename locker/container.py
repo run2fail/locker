@@ -2,31 +2,31 @@
 This module provides an extended lxc container class.
 '''
 
-import lxc
 import logging
-from colorama import Fore
-import iptc
-import re
-import time
 import os
+import re
 import shutil
-from locker.util import rule_to_str, regex_container_name, regex_link, regex_ports, regex_volumes, regex_cgroup
-import locker.project
-from locker.network import Network
-from locker.etchosts import Hosts
-from functools import wraps
-import netaddr
+import time
 from collections import OrderedDict
+from functools import wraps
+
+import iptc
+import locker.project
+import lxc
+import netaddr
+from colorama import Fore
+from locker.etchosts import Hosts
+from locker.network import Network
+from locker.util import (regex_cgroup, regex_container_name, regex_link,
+                         regex_ports, regex_volumes, rule_to_str)
+
 
 class CommandFailed(RuntimeError):
     ''' Generic command failed RuntimeError '''
-    def __init__(self, arg):
-        self.msg = arg
-
-    def __str__(self):
-        return repr(self.msg)
+    pass
 
 def return_if_not_defined(func):
+    ''' Return if the container has not been defined '''
     @wraps(func)
     def return_if_not_defined_wrapper(*args, **kwargs):
         if not args[0].defined:
@@ -37,6 +37,7 @@ def return_if_not_defined(func):
     return return_if_not_defined_wrapper
 
 def return_if_defined(func):
+    ''' Return if the container has been defined '''
     @wraps(func)
     def return_if_defined_wrapper(*args, **kwargs):
         if args[0].defined:
@@ -47,6 +48,7 @@ def return_if_defined(func):
     return return_if_defined_wrapper
 
 def return_if_not_running(func):
+    ''' Return if the container is not running '''
     @wraps(func)
     def return_if_not_running_wrapper(*args, **kwargs):
         if not args[0].running:
@@ -68,6 +70,11 @@ class Container(lxc.Container):
 
     def __init__(self, name, yml, project, color='', config_path=None):
         ''' Init instance with custom property values and init base class
+
+        :param name: Name of the container
+        :param project: Project instance of this container
+        :param color: ASCII color escape sequence for log messages
+        :param config_path: Path to the container's config file
         '''
         if not re.match(regex_container_name, name):
             raise ValueError('Invalid value for container name: %s' % name)
@@ -85,11 +92,13 @@ class Container(lxc.Container):
 
     @staticmethod
     def get_containers(project, yml):
-        '''
-        Generate a list of container objects
+        ''' Generate a list of container objects
+
+        Returns lists of containers that have been defined in the YAML
+        configuration file.
 
         :param yml: YAML project configuration
-        :returns:   Tuple: List of selected containers, List of all containers
+        :returns:  (List of selected containers, List of all containers)
         '''
         containers = list()
         all_containers = list()
@@ -116,6 +125,8 @@ class Container(lxc.Container):
 
     def _network_conf(self):
         ''' Apply network configuration
+
+        The the container's network configuration in the config file.
         '''
         ip = self.project.network.get_ip(self)
         gateway = self.project.network.gateway
@@ -222,20 +233,20 @@ class Container(lxc.Container):
 
     @return_if_not_defined
     @return_if_not_running
-    def get_ips(self, retries=10):
-        '''
-        Get IPs of the container
+    def get_ips(self, retries=10, family='inet'):
+        ''' Get IP addresses of the container
 
         Sleeps for 1s between each retry.
 
         :param retries: Try a again this many times if IPs are not available yet
+        :param family: Filter by the address family
         :returns: List of IPs or None if the container is not defined or stopped
         '''
         ips = lxc.Container.get_ips(self)
         while len(ips) == 0 and self.running and retries > 0:
             self.logger.debug('Waiting to acquire an IP address')
             time.sleep(1)
-            ips = lxc.Container.get_ips(self, family='inet')
+            ips = lxc.Container.get_ips(self, family=family)
             retries -= 1
         return ips
 
@@ -281,8 +292,13 @@ class Container(lxc.Container):
 
     @return_if_not_defined
     def start(self):
-        '''
-        Start container
+        ''' Start container
+
+        Starts the container after:
+        - Generation of the fstab file for bind mount support
+        - Setting the hostname inside the rootfs
+        - Setting the network ocnfiguration in the container's config file
+        - Setting the nameservers in the rootfs
 
         :raises: CommandFailed
         '''
@@ -309,8 +325,7 @@ class Container(lxc.Container):
     @return_if_not_defined
     @return_if_not_running
     def stop(self):
-        '''
-        Stop container
+        ''' Stop container
 
         :raises: CommandFailed
         '''
@@ -325,8 +340,7 @@ class Container(lxc.Container):
 
     @return_if_defined
     def create(self):
-        '''
-        Create container based on template or as clone
+        ''' Create container based on template or as clone
 
         :raises: CommandFailed
         '''
@@ -382,8 +396,10 @@ class Container(lxc.Container):
 
     @return_if_not_defined
     def remove(self):
-        '''
-        Destroy container
+        ''' Destroy container
+
+        Stops the container and deletes the image. The user must confirm the
+        deletion (of each container) if --delete-dont-ask was not provided.
 
         :raises: CommandFailed
         '''
@@ -405,7 +421,11 @@ class Container(lxc.Container):
             raise
 
     def rmports(self):
-        ''' Remove netfilter rules
+        ''' Remove netfilter rules that enable port forwarding
+
+        This method removes all netfilter that have been added to make ports
+        of the container accessible from external sources.
+        This will not remove the netfilter rules added for linking!
         '''
         self.logger.debug('Removing netfilter rules')
         if self.running:
@@ -436,6 +456,10 @@ class Container(lxc.Container):
 
     def _add_dnat_rule(self, container_ip, port_conf, locker_nat_chain):
         ''' Add rule to the LOCKER chain in the NAT table
+
+        :param container_ip: IP addresss of the container
+        :param port_conf: dictionary with parsed port configuration
+        :parm locker_nat_chain: LOCKER chain in the NAT table
         '''
         port_forwarding = iptc.Rule()
         port_forwarding.protocol = port_conf['proto']
@@ -452,6 +476,10 @@ class Container(lxc.Container):
 
     def _add_forward_rule(self, container_ip, port_conf, filter_forward):
         ''' Add rule to the FORWARD chain in the FILTER table
+
+        :param container_ip: IP addresss of the container
+        :param port_conf: dictionary with parsed port configuration
+        :parm filter_forward: FORWARD chain in the FILTER table
         '''
         forward_rule = iptc.Rule()
         forward_rule.protocol = port_conf['proto']
@@ -574,8 +602,7 @@ class Container(lxc.Container):
             fstab.write('\n')
 
     def get_netfiler_rules(self):
-        '''
-        Get port forwarding netfilter rules of the container
+        ''' Get port forwarding netfilter rules of the container
 
         This method only searches the LOCKER chain in the NAT table and ignores
         the FORWARD chain in the FILTER table!
@@ -703,10 +730,56 @@ class Container(lxc.Container):
             names = [x for x in names if x]
             hosts_entries.extend([(ip, name, names) for ip in container.get_ips()])
         self._update_etc_hosts(hosts_entries)
+        self._add_link_rules(hosts_entries)
+
+    def _add_link_rules(self, entries):
+        ''' Add netfilter rules to enable communication between containers
+
+        This method adds netfilter rules that enable this container to
+        communicate with the linked containers. Communication is allowing using
+        any port and any protocol.
+        These netfilter rules are required if the policy of the forward chain
+        in the filter table has been set to drop.
+
+        :params: List of entries to add, format (ipaddr, container name, names)
+        '''
+        forward_chain = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
+        if Network.find_comment_in_chain(self.name + ':link', forward_chain):
+            self.logger.debug('Found netfilter link rules, skipping')
+            return
+
+        for ipaddr, _name, _names in entries:
+            for ip in self.get_ips():
+                # self -> other containers
+                forward_rule = iptc.Rule()
+                forward_rule.src = ip
+                forward_rule.dst = ipaddr
+                forward_rule.in_interface = self.project.network.bridge_ifname
+                forward_rule.out_interface = self.project.network.bridge_ifname
+                comment_match = forward_rule.create_match('comment')
+                comment_match.comment = self.name + ':link'
+                forward_rule.create_target('ACCEPT')
+                forward_chain.insert_rule(forward_rule)
+
+                # other containers -> self
+                forward_rule = iptc.Rule()
+                forward_rule.src = ipaddr
+                forward_rule.dst = ip
+                forward_rule.in_interface = self.project.network.bridge_ifname
+                forward_rule.out_interface = self.project.network.bridge_ifname
+                comment_match = forward_rule.create_match('comment')
+                comment_match.comment = self.name + ':link'
+                forward_rule.create_target('ACCEPT')
+                forward_chain.insert_rule(forward_rule)
+
+    def _remove_link_rules(self):
+        ''' Remove netfilter rules required for link support '''
+        filter_table = iptc.Table(iptc.Table.FILTER)
+        forward_chain = iptc.Chain(filter_table, 'FORWARD')
+        Network._delete_if_comment(self.name + ':link', filter_table, forward_chain)
 
     def _update_etc_hosts(self, entries):
-        '''
-        Update /etc/hosts with new entries
+        ''' Update /etc/hosts with new entries
 
         This method deletes old, project specific entries from /etc/hosts and
         then adds the specified ones.
@@ -732,10 +805,14 @@ class Container(lxc.Container):
         '''
         self.logger.debug('Removing links')
         self._update_etc_hosts([])
+        self._remove_link_rules()
 
     def linked_to(self):
-        '''
-        Return list of linked containers based on /etc/hosts
+        ''' Return list of linked containers based on /etc/hosts
+
+        Does not evaluate the YAML configuration but the actual state of the
+        container.
+        TODO Does not yet check netfilter rules
 
         :returns: List of linked containers
         '''
@@ -759,3 +836,37 @@ class Container(lxc.Container):
             if match:
                 linked.append(match.group(1))
         return linked
+
+    def get_cgroup_item(self, key):
+        ''' Get cgroup item
+
+        Tries to get the cgroup item and returns only single item if a list
+        was returned. The method first tries to query the key's value from the
+        running container and if this fails tries to get the value from the
+        config file.
+
+        :param key: The key / name of the cgroup item
+        :returns: cgroup item
+        '''
+        self.logger.debug('Getting cgroup item: %s', key)
+        try:
+            # will fail if the container is not running
+            value = lxc.Container.get_cgroup_item(self, key)
+        except KeyError:
+            # 2nd try: get value from config file
+            # get_config_item() can return either
+            # - an empty string
+            # - a list with a single value
+            # - something else that I do not expect
+            value = self.get_config_item('lxc.cgroup.' + key)
+            if value == '':
+                # This seems to be the standard value if the key was not found
+                pass
+            elif isinstance(value, list) and len(value) == 1:
+                # Locker relevant cgroup keys should always return only one
+                # value but this may still be a list.
+                value = value[0]
+            else:
+                self.logger.error('Unexpected value for cgroup item: %s = %s', key, value)
+                raise ValueError('Unexpected value for cgroup item: %s = %s' % (key, value))
+        return value

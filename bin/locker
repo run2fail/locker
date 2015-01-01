@@ -22,15 +22,17 @@ __copyright__ = "Copyright 2014"
 __license__ = "GPLv3 or later"
 __status__ = "Prototype"
 
-import os
-import sys
-import yaml
 import argparse
-import lxc
 import logging
+import os
 import pprint
+import sys
+
+import lxc
+import yaml
 from locker import Project
 from locker._version import __version__
+
 
 def parse_args():
     '''
@@ -238,4 +240,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
