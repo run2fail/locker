@@ -14,7 +14,7 @@ else:
 try:
     import lxc
 except ImportError:
-    raise ImportError('lxc module is not available (not available on PyPi but part of lxc user space tools)')
+    sys.stderr.write('WARNING: lxc module is not available (not available on PyPi but part of lxc user space tools)\n')
 
 setup(
     name='Locker',
