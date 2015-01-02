@@ -66,6 +66,7 @@ Locker currently supports the following features:
   - Multi-colored output (can be optionally disabled)
   - Set container cgroup configuration, e.g., CPUs, memory, ... (experimental
     feature)
+  - Bash tab completion via `argcomplete <https://github.com/kislyuk/argcomplete>`_
 
 
 Challenges implementing Locker
@@ -218,7 +219,7 @@ directory:
 
 .. code::
 
-    $ locker status -f myconf.yaml --validate docs/schema.yaml
+    $ locker -f myconf.yaml --validate docs/schema.yaml status
 
 Please note that the `pykwalify <https://github.com/Grokzen/pykwalify>`_
 module must be available.
@@ -339,6 +340,20 @@ About the commands:
     (Re-)Apply cgroup settings. Automatically done when starting containers.
 :cleanup:
     Stop all containers and cleanup netfilter rules and bridge
+
+Tab Completion
+--------------
+
+Locker supports Bash tab completion thanks to the
+`argcomplete <https://github.com/kislyuk/argcomplete>`_ module. After installing
+Locker you can temporarily activate the tab completion as follows:
+
+.. code::
+
+    $ eval "$(register-python-argcomplete locker)"
+
+Add this line to your ``~/.bashrc`` to enable persistence.
+
 
 Limitations & Issues
 ====================

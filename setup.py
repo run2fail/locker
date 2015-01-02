@@ -33,5 +33,6 @@ setup(
         'PrettyTable',
         'PyYaml',
         'pyroute2',
+        'argcomplete',
     ],
 )

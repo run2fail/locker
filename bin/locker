@@ -22,6 +22,7 @@ __copyright__ = "Copyright 2014"
 __license__ = "GPLv3 or later"
 __status__ = "Prototype"
 
+import argcomplete
 import argparse
 import logging
 import os
@@ -156,6 +157,7 @@ def parse_args():
             nargs='*', default=[],
             help='Space separated list of containers (default: all containers)')
 
+    argcomplete.autocomplete(parser)
     args_dict = vars(parser.parse_args())
     return args_dict
 
