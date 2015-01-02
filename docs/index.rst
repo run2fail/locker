@@ -1,12 +1,17 @@
-.. image:: ./docs/logo.png
+.. Locker documentation master file, created by
+   sphinx-quickstart on Fri Jan  2 16:59:19 2015.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.
 
-.. include:: ./docs/about.rst
+Welcome to Locker's documentation!
+==================================
 
-Usage
-===============
+.. image:: ./logo.png
 
-This is just a very brief overview of Locker. Please have a look at the
-`complete documentation <http://locker.readthedocs.org>`_.
+.. include:: ./about.rst
+
+Example
+-------
 
 Locker projects are defined in a YAML file similar to `fig's <http://fig.sh>`_
 syntax, abbreviated example:
@@ -41,16 +46,39 @@ syntax, abbreviated example:
         - "8.8.8.8"
         - "$bridge"
 
+
 Example session (with ``locker.yaml`` in the current directory):
 
-.. image:: ./docs/demo.gif
+.. image:: ./demo.gif
 
-.. include:: ./docs/install.rst
-.. include:: ./docs/features.rst
-.. include:: ./docs/todos.rst
-.. include:: ./docs/warning.rst
+
+.. include:: ./warning.rst
 
 License
 ============
 
 Published under the GPLv3 or later
+
+Contents
+=========
+
+.. toctree::
+   :maxdepth: 2
+
+   features
+   install
+   configuration
+   commands
+   todos
+   tests
+   network
+   locker
+
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
+

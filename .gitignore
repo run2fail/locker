@@ -7,3 +7,7 @@ build
 cover
 *.pyc
 test.sh
+_build
+_static
+_templates
+

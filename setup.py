@@ -34,5 +34,6 @@ setup(
         'PyYaml',
         'pyroute2',
         'argcomplete',
+        'sphinx_rtd_theme',
     ],
 )
