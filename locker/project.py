@@ -173,7 +173,7 @@ class Project(object):
             ips = container.get_ips()
             if ips:
                 ips = ','.join(ips)
-            dnat_rules = container.get_netfiler_rules()
+            dnat_rules = container.get_port_rules()
             ports = rules_to_str(dnat_rules)
             reset_color = Fore.RESET if container.color else ''
             ports = break_and_add_color(container, ports)

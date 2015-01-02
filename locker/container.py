@@ -454,33 +454,28 @@ class Container(lxc.Container):
 
         return Network.find_comment_in_chain(self.name, locker_chain) or Network.find_comment_in_chain(self.name, forward_chain)
 
-    def _add_dnat_rule(self, container_ip, port_conf, locker_nat_chain):
-        ''' Add rule to the LOCKER chain in the NAT table
+    def _add_port_rules(self, container_ip, port_conf, locker_chain, forward_chain):
+        ''' Add rule to the LOCKER chain in the NAT table and to the FORWARD
+        chain in the FILTER table
 
         :param container_ip: IP addresss of the container
         :param port_conf: dictionary with parsed port configuration
-        :parm locker_nat_chain: LOCKER chain in the NAT table
+        :param locker_chain: LOCKER chain in the NAT table
+        :param forward_chain: FORWARD chain in the FILTER table
         '''
-        port_forwarding = iptc.Rule()
-        port_forwarding.protocol = port_conf['proto']
+        locker_rule = iptc.Rule()
+        locker_rule.protocol = port_conf['proto']
         if port_conf['host_ip']:
-            port_forwarding.dst = port_conf['host_ip']
-        port_forwarding.in_interface = '!%s' % self.project.network.bridge_ifname
-        tcp_match = port_forwarding.create_match(port_conf['proto'])
+            locker_rule.dst = port_conf['host_ip']
+        locker_rule.in_interface = '!%s' % self.project.network.bridge_ifname
+        tcp_match = locker_rule.create_match(port_conf['proto'])
         tcp_match.dport = port_conf['host_port']
-        comment_match = port_forwarding.create_match('comment')
+        comment_match = locker_rule.create_match('comment')
         comment_match.comment = self.name
-        target = port_forwarding.create_target('DNAT')
+        target = locker_rule.create_target('DNAT')
         target.to_destination = '%s:%s' % (container_ip, port_conf['container_port'])
-        locker_nat_chain.insert_rule(port_forwarding)
+        locker_chain.insert_rule(locker_rule)
 
-    def _add_forward_rule(self, container_ip, port_conf, filter_forward):
-        ''' Add rule to the FORWARD chain in the FILTER table
-
-        :param container_ip: IP addresss of the container
-        :param port_conf: dictionary with parsed port configuration
-        :parm filter_forward: FORWARD chain in the FILTER table
-        '''
         forward_rule = iptc.Rule()
         forward_rule.protocol = port_conf['proto']
         forward_rule.dst = container_ip
@@ -491,7 +486,7 @@ class Container(lxc.Container):
         comment_match = forward_rule.create_match('comment')
         comment_match.comment = self.name
         forward_rule.create_target('ACCEPT')
-        filter_forward.insert_rule(forward_rule)
+        forward_chain.insert_rule(forward_rule)
 
     @return_if_not_defined
     @return_if_not_running
@@ -540,13 +535,12 @@ class Container(lxc.Container):
                 if container_ip.find(':') >= 0:
                     self.logger.warn('Found unsupported IPv6 address: %s', container_ip)
                     continue
-                self._add_dnat_rule(container_ip, port_conf, locker_nat_chain)
-                self._add_forward_rule(container_ip, port_conf, filter_forward)
+                self._add_port_rules(container_ip, port_conf, locker_nat_chain, filter_forward)
 
     def _set_hostname(self):
-        ''' Set containers hostname
+        ''' Set container hostname
 
-        Sets the containers hostname and FQDN in /etc/hosts and /etc/hostname if
+        Sets the container's hostname and FQDN in /etc/hosts and /etc/hostname if
         fqdn is specified in the YAML configuration.
         '''
         fqdn = self.yml.get('fqdn', None)
@@ -601,11 +595,13 @@ class Container(lxc.Container):
                     fstab.write('%s %s none bind 0 0\n' % (remote, mountpt))
             fstab.write('\n')
 
-    def get_netfiler_rules(self):
+    def get_port_rules(self):
         ''' Get port forwarding netfilter rules of the container
 
         This method only searches the LOCKER chain in the NAT table and ignores
         the FORWARD chain in the FILTER table!
+
+        :returns: list of rules as tuple (protocol, (dst, port), (ip, port))
         '''
         nat_table = iptc.Table(iptc.Table.NAT)
         locker_nat_chain = iptc.Chain(nat_table, 'LOCKER')
@@ -720,18 +716,20 @@ class Container(lxc.Container):
                 self.logger.error('Cannot link with unavailable container: %s', name)
                 continue
             if not container.running:
-                # Suppress message when it's clear that the particular container may have been stopped
+                # Suppress message when it's clear that the particular container
+                # may have been stopped
                 if auto_update:
                     self.logger.debug('Cannot link with stopped container: %s', name)
                 else:
-                    self.logger.warning('Cannot link with stopped container: %s', name)
+                    self.logger.warn('Cannot link with stopped container: %s', name)
                 continue
             names = [container.yml.get('fqdn', None), name, group_dict.get('alias', None)]
             names = [x for x in names if x]
             hosts_entries.extend([(ip, name, names) for ip in container.get_ips()])
         self._update_etc_hosts(hosts_entries)
-        self._add_link_rules(hosts_entries)
+        self._update_link_rules(hosts_entries)
 
+    @return_if_not_running
     def _add_link_rules(self, entries):
         ''' Add netfilter rules to enable communication between containers
 
@@ -751,32 +749,42 @@ class Container(lxc.Container):
         for ipaddr, _name, _names in entries:
             for ip in self.get_ips():
                 # self -> other containers
-                forward_rule = iptc.Rule()
-                forward_rule.src = ip
-                forward_rule.dst = ipaddr
-                forward_rule.in_interface = self.project.network.bridge_ifname
-                forward_rule.out_interface = self.project.network.bridge_ifname
-                comment_match = forward_rule.create_match('comment')
+                rule = iptc.Rule()
+                rule.src = ip
+                rule.dst = ipaddr
+                rule.in_interface = self.project.network.bridge_ifname
+                rule.out_interface = self.project.network.bridge_ifname
+                comment_match = rule.create_match('comment')
                 comment_match.comment = self.name + ':link'
-                forward_rule.create_target('ACCEPT')
-                forward_chain.insert_rule(forward_rule)
+                rule.create_target('ACCEPT')
+                forward_chain.insert_rule(rule)
 
                 # other containers -> self
-                forward_rule = iptc.Rule()
-                forward_rule.src = ipaddr
-                forward_rule.dst = ip
-                forward_rule.in_interface = self.project.network.bridge_ifname
-                forward_rule.out_interface = self.project.network.bridge_ifname
-                comment_match = forward_rule.create_match('comment')
+                rule = iptc.Rule()
+                rule.src = ipaddr
+                rule.dst = ip
+                rule.in_interface = self.project.network.bridge_ifname
+                rule.out_interface = self.project.network.bridge_ifname
+                comment_match = rule.create_match('comment')
                 comment_match.comment = self.name + ':link'
-                forward_rule.create_target('ACCEPT')
-                forward_chain.insert_rule(forward_rule)
+                rule.create_target('ACCEPT')
+                forward_chain.insert_rule(rule)
 
     def _remove_link_rules(self):
         ''' Remove netfilter rules required for link support '''
         filter_table = iptc.Table(iptc.Table.FILTER)
         forward_chain = iptc.Chain(filter_table, 'FORWARD')
         Network._delete_if_comment(self.name + ':link', filter_table, forward_chain)
+
+    def _update_link_rules(self, entries):
+        ''' Wrapper that first removes all rules and then adds the specified ones
+
+        TODO Find a better solution than completely removing all rules first
+
+        :params: List of entries to add, format (ipaddr, container name, names)
+        '''
+        self._remove_link_rules()
+        self._add_link_rules(entries)
 
     def _update_etc_hosts(self, entries):
         ''' Update /etc/hosts with new entries

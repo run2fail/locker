@@ -385,17 +385,9 @@ To-Dos / Feature Wish List
 - Networking related:
 
   - Support IPv6 addresses and netfilter rules
-  - Bridging
-
-    - Prevent communication between containers in the default configuration
-    - Add netfilter rules for inter-container commmunication when "links" are
-      defined
-
   - Link backwards, i.e., add name + fqdn of the linking container to target
     container. This may be beneficial, e.g., when database logs shall contain
     the hostname
-  - Enable to remove LOCKER chain in the NAT table + rules in the FORWARD chain
-  - Enable to specify DNS servers for each container via the configuration
 
 - Configuration related:
 
