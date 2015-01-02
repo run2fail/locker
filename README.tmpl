@@ -1,0 +1,60 @@
+.. image:: ./docs/logo.png
+
+.. image:: https://readthedocs.org/projects/locker/badge/?version=latest
+    :target: https://readthedocs.org/projects/locker/?badge=latest
+    :alt: Documentation Status
+
+.. include:: ./docs/about.rst
+
+Usage
+===============
+
+This is just a very brief overview of Locker. Please have a look at the
+`complete documentation <http://locker.readthedocs.org>`_.
+
+Locker projects are defined in a YAML file similar to `fig's <http://fig.sh>`_
+syntax, abbreviated example:
+
+.. code:: yaml
+
+    db:
+        template:
+            name: "ubuntu"
+            release: "precise"
+        ports:
+        - "8001:8001"
+        volumes:
+        - "/opt/data/db/etc:/etc"
+        fqdn: 'db.example.net'
+    web:
+        clone: "ubuntu"
+        ports:
+        - "192.168.2.123:8003:8003/tcp"
+        - "192.168.2.123:8003:8003/udp"
+        links:
+        - "db:database"
+    foo:
+        template:
+            name: "ubuntu"
+            arch: "amd64"
+        links:
+        - "db"
+        cgroup:
+        - "cpuset.cpus=0,1"
+        dns:
+        - "8.8.8.8"
+        - "$bridge"
+
+Example session (with ``locker.yaml`` in the current directory):
+
+.. image:: ./docs/demo.gif
+
+.. include:: ./docs/install.rst
+.. include:: ./docs/features.rst
+.. include:: ./docs/todos.rst
+.. include:: ./docs/warning.rst
+
+License
+============
+
+Published under the GPLv3 or later
