@@ -2,6 +2,7 @@
 
 from setuptools import setup
 import re
+import sys
 
 version_file = 'locker/_version.py'
 line = open(version_file, 'r').readline()
