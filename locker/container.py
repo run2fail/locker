@@ -432,11 +432,11 @@ class Container(lxc.Container):
             self.logger.warn('Container is still running, services will be unavailable')
 
         nat_table = iptc.Table(iptc.Table.NAT)
-        locker_chain = iptc.Chain(nat_table, 'LOCKER')
+        locker_chain = iptc.Chain(nat_table, 'LOCKER_PREROUTING')
         Network._delete_if_comment(self.name, nat_table, locker_chain)
 
         filter_table = iptc.Table(iptc.Table.FILTER)
-        forward_chain = iptc.Chain(filter_table, 'FORWARD')
+        forward_chain = iptc.Chain(filter_table, 'LOCKER_FORWARD')
         Network._delete_if_comment(self.name, filter_table, forward_chain)
 
     def _has_netfilter_rules(self):
@@ -448,9 +448,9 @@ class Container(lxc.Container):
         '''
         self.logger.debug('Checking if container has already rules')
         nat_table = iptc.Table(iptc.Table.NAT)
-        locker_chain = iptc.Chain(nat_table, 'LOCKER')
+        locker_chain = iptc.Chain(nat_table, 'LOCKER_PREROUTING')
         filter_table = iptc.Table(iptc.Table.FILTER)
-        forward_chain = iptc.Chain(filter_table, 'FORWARD')
+        forward_chain = iptc.Chain(filter_table, 'LOCKER_FORWARD')
 
         return Network.find_comment_in_chain(self.name, locker_chain) or Network.find_comment_in_chain(self.name, forward_chain)
 
@@ -518,8 +518,8 @@ class Container(lxc.Container):
             return
         self.logger.debug('Adding port forwarding rules')
 
-        locker_nat_chain = iptc.Chain(iptc.Table(iptc.Table.NAT), 'LOCKER')
-        filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
+        locker_nat_chain = iptc.Chain(iptc.Table(iptc.Table.NAT), 'LOCKER_PREROUTING')
+        filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'LOCKER_FORWARD')
         if self._has_netfilter_rules():
             if not indirect:
                 self.logger.warn('Existing netfilter rules found - must be removed first')
@@ -604,7 +604,7 @@ class Container(lxc.Container):
         :returns: list of rules as tuple (protocol, (dst, port), (ip, port))
         '''
         nat_table = iptc.Table(iptc.Table.NAT)
-        locker_nat_chain = iptc.Chain(nat_table, 'LOCKER')
+        locker_nat_chain = iptc.Chain(nat_table, 'LOCKER_PREROUTING')
         dnat_rules = list()
         try:
             self.logger.debug('Searching netfilter rules')
@@ -741,7 +741,7 @@ class Container(lxc.Container):
 
         :params: List of entries to add, format (ipaddr, container name, names)
         '''
-        forward_chain = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
+        forward_chain = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'LOCKER_FORWARD')
         if Network.find_comment_in_chain(self.name + ':link', forward_chain):
             self.logger.debug('Found netfilter link rules, skipping')
             return
@@ -773,7 +773,7 @@ class Container(lxc.Container):
     def _remove_link_rules(self):
         ''' Remove netfilter rules required for link support '''
         filter_table = iptc.Table(iptc.Table.FILTER)
-        forward_chain = iptc.Chain(filter_table, 'FORWARD')
+        forward_chain = iptc.Chain(filter_table, 'LOCKER_FORWARD')
         Network._delete_if_comment(self.name + ':link', filter_table, forward_chain)
 
     def _update_link_rules(self, entries):

@@ -107,50 +107,71 @@ class Network(object):
         table.refresh()
         table.autocommit = True
 
-    def _setup_locker_chain(self):
-        ''' Add container unspecific netfilter modifications
+    def _setup_locker_chains(self):
+        ''' Add container unspecific netfilter rules
 
         This method does the following
 
-          - Adds LOCKER chain to the NAT table
+          - Adds LOCKER_PREROUTING chain to the NAT table
           - Creates a rule from the PREROUTING chain in the NAT table to the
-            LOCKER chain
-          - Ensures that the jump rule is only added once (the rule's comments
+            LOCKER_PREROUTING chain
+          - Adds LOCKER_FORWARD chain to the FILTER table
+          - Creates a rule from the FORWARD chain in the FILTER table to the
+            LOCKER_FORWARD chain
+          - Ensures that the jump rules are only added once (the rules' comments
             are checked for a match)
 
-        :raises: iptc.IPTCError if the LOCKER chain cannot be retrieved or
-                 created
+        :raises: iptc.IPTCError if a chain cannot be retrieved or created
         '''
         nat_table = iptc.Table(iptc.Table.NAT)
-        if 'LOCKER' not in [c.name for c in nat_table.chains]:
+        if 'LOCKER_PREROUTING' not in [c.name for c in nat_table.chains]:
             try:
-                logging.debug('Adding LOCKER chain to NAT table')
-                nat_table.create_chain('LOCKER')
+                logging.debug('Adding LOCKER_PREROUTING chain to NAT table')
+                nat_table.create_chain('LOCKER_PREROUTING')
             except iptc.IPTCError as exception:
-                logging.error('Was not able to create LOCKER chain in NAT table, cannot add rules: %s', exception)
+                logging.error('Was not able to create LOCKER_PREROUTING chain in NAT table, cannot add rules: %s', exception)
                 raise
 
         nat_prerouting_chain = iptc.Chain(nat_table, 'PREROUTING')
         if not Network.find_comment_in_chain('LOCKER', nat_prerouting_chain):
             jump_to_locker_rule = iptc.Rule()
-            jump_to_locker_rule.create_target("LOCKER")
+            jump_to_locker_rule.create_target("LOCKER_PREROUTING")
             addr_type_match = jump_to_locker_rule.create_match("addrtype")
             addr_type_match.dst_type = "LOCAL"
             comment_match = jump_to_locker_rule.create_match("comment")
             comment_match.comment = 'LOCKER'
             nat_prerouting_chain.insert_rule(jump_to_locker_rule)
 
+        filter_table = iptc.Table(iptc.Table.FILTER)
+        if 'LOCKER_FORWARD' not in [c.name for c in filter_table.chains]:
+            try:
+                logging.debug('Adding LOCKER_FORWARD chain to NAT table')
+                filter_table.create_chain('LOCKER_FORWARD')
+            except iptc.IPTCError as exception:
+                logging.error('Was not able to create LOCKER_FORWARD chain in NAT table, cannot add rules: %s', exception)
+                raise
+
+        forward_chain = iptc.Chain(filter_table, 'FORWARD')
+        if not Network.find_comment_in_chain('LOCKER', forward_chain):
+            jump_to_locker_rule = iptc.Rule()
+            jump_to_locker_rule.create_target("LOCKER_FORWARD")
+            #addr_type_match = jump_to_locker_rule.create_match("addrtype")
+            #addr_type_match.dst_type = "LOCAL"
+            comment_match = jump_to_locker_rule.create_match("comment")
+            comment_match.comment = 'LOCKER'
+            forward_chain.insert_rule(jump_to_locker_rule)
+
     def start(self):
         ''' Sets bridge and netfilter rules up
         '''
-        self._setup_locker_chain()
+        self._setup_locker_chains()
         self._create_bridge()
         self._enable_nat()
 
     def _enable_nat(self):
         ''' Add netfilter rules that enable direct communication from the containers
         '''
-        filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'FORWARD')
+        filter_forward = iptc.Chain(iptc.Table(iptc.Table.FILTER), 'LOCKER_FORWARD')
         if not Network.find_comment_in_chain(self.bridge_ifname, filter_forward):
             logging.info('Adding NAT rules for external access')
             # enable access the containers to external destinations
@@ -194,7 +215,7 @@ class Network(object):
             return
 
         filter_table = iptc.Table(iptc.Table.FILTER)
-        forward_chain = iptc.Chain(filter_table, 'FORWARD')
+        forward_chain = iptc.Chain(filter_table, 'LOCKER_FORWARD')
         Network._delete_if_comment(bridge_ifname, filter_table, forward_chain)
 
         nat_table = iptc.Table(iptc.Table.NAT)
