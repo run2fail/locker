@@ -49,7 +49,13 @@ syntax, abbreviated example:
 
 Example session (with ``locker.yaml`` in the current directory):
 
-.. image:: ./demo.gif
+.. only:: html
+
+    .. image:: ./demo.gif
+
+.. only:: latex
+
+    .. image:: ./demo.png
 
 
 .. include:: ./warning.rst
