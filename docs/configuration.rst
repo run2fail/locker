@@ -4,7 +4,14 @@ Project Configuration
 The YAML file defines a Locker ``project``, i.e., a group of containers. The
 ``project`` name may be provided via a command line parameter and is derived
 from the current directory's name as default. Use the ``--project`` parameter
-to explicitly specify the project name.
+to explicitly specify the project name. The project name may only consist of
+alphanumeric characters but may not start with a digit.
+
+The project configuration file and project name can be specified as follows:
+
+.. code:: sh
+
+    $ locker --file config.yaml --project foobar
 
 Containers
 ----------
@@ -35,7 +42,7 @@ the actual name of the container on the system will be of the format
 ``$project_$name`` to enable containers with the same name in different
 projects.
 
-The container name may only consist of alphanumeric characters but may no start
+The container name may only consist of alphanumeric characters but may not start
 with a digit.
 
 Data Storage
@@ -103,6 +110,10 @@ forwarded. In many use cases ``HOST_IP`` will not be required.
 Please note that Locker does not support dynamic/automatic assignment of port
 numbers. At this time Locker will also not check if there are conflicting
 netfilter rules.
+
+Port forwarding only works for IP datagrams that are received from external
+entities. The responsible netfilter rules are not applied for datagrams
+originating from the host system.
 
 
 FQDN and Hostname

@@ -43,11 +43,11 @@ Locker creates to new netfilter chains to keep its rules out of the way of
 the other rules:
 
 :``LOCKER_FORWARD``:
-    Chain in the ``FILTER`` table, accessed via a jump from the ``FORWARD``
-    chain
+    Chain in the ``FILTER`` table that is  accessed via a jump from the
+    ``FORWARD`` chain
 :``LOCKER_PREROUTING``:
-    Chain in the ``NAT`` table, accessed via a jump from the ``PREROUTING``
-    chain
+    Chain in the ``NAT`` table that is accessed via a jump from the
+    ``PREROUTING`` chain
 
 The particular jump rules are automatically created.
 Rules will always have a specific comment that is used to easily filter them.
@@ -72,3 +72,54 @@ rules via the particular Locker commands.
 The ``status`` command will always show the actualy state of netfilter rules
 and container links and will never show what is currently configured in the YAML
 file. This way you can easily spot deviations.
+
+Security Considerations
+-----------------------
+
+The network configuration is one way to isolate and protect host from malicious
+entities. Nevertheless, containers that are complete user space root file
+systems should be managed and secured like normal hosts. It is better to
+shutdown or update a vulnerable daemon listening for incoming connections than
+to prevent communication.
+
+
+The following notes shall give Locker users some insight about the default
+network configuration in a security context.
+
+- Locker managed containers are not prevented from accessing the Internet, like
+  in the default configuration of lxc. Locker adds the following rules to the
+  ``LOCKER_FORWARD`` chain:
+
+  .. code::
+
+    target  prot  opt  in  out  source    destination
+    ACCEPT  all   --   !br br   anywhere  anywhere
+    ACCEPT  all   --   br  !br  anywhere  anywhere
+
+  where ``br`` is the bridge device. Further on, the following rule is added to
+  the ``PREROUTING`` chain:
+
+  .. code::
+
+    target      prot  opt  in   out  source       destination
+    MASQUERADE  all   --   any  any  10.1.1.0/24  !10.1.1.0/24
+
+  where ``10.1.1.0/24`` is an example subnet used by a particular project.
+- Missing ``dns`` configuration will probably prevent communication of
+  applications from inside the container with external entities but IP based
+  communication may still be possible.
+- Locker managed containers can communicate with each other (independent of the
+  ``links`` configuration). Likewise, Locker managed containers from different
+  projects can communicate with each other. This may be configurable in future
+  releases.
+- If you want your containers never to be acessible from the outside but still
+  want to provide services to external entitites you should consider:
+
+  - Removing all ``ports`` from the containers' config
+  - Setting up a webserver (Apache, nginx, ...) as reverse proxy on the host
+    system that proxies incoming connections based on the URL or port to the
+    right container
+- Connection between the containers and the host system (and vice versa) is not
+  prevented. If some daemon is listening on the bridge device, the containers
+  will be able to use the service. For example, you will probably be able to
+  ``ssh`` from the container to the host system.
