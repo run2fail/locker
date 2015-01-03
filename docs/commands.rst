@@ -52,6 +52,9 @@ commands (positional arguments):
     --no-color, -o        Do not use colored output
     --validate VALIDATE   Validate YAML configuration against the specified
                           schema
+    --lxcpath LXCPATH, -P LXCPATH
+                          Root path the containers (default=/var/lib/lxc)
+
 
 Command specific Options
 ------------------------

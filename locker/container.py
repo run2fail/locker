@@ -89,6 +89,7 @@ class Container(lxc.Container):
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         lxc.Container.__init__(self, name, config_path)
+        self.set_config_path(project.args.get('lxcpath', '/var/lib/lxc'))
 
     @staticmethod
     def get_containers(project, yml):

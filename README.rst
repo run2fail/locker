@@ -185,6 +185,12 @@ To-Dos / Feature Wish List
   - Link backwards, i.e., add name + fqdn of the linking container to target
     container. This may be beneficial, e.g., when database logs shall contain
     the hostname
+  - Make network configuration more restrictive, e.g.,
+
+    - Enable to configure if containers (in the same or different projects)
+      should be isolated from each other.
+    - Enable to configure if containers shall be able to establish outbound
+      connections with external entities.
 
 - Configuration related:
 
