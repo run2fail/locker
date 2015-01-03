@@ -5,6 +5,7 @@ Network related functionality like bridge and netfilter setup
 import itertools
 import logging
 import re
+import time
 
 import iptc
 import locker
@@ -164,6 +165,7 @@ class Network(object):
     def start(self):
         ''' Sets bridge and netfilter rules up
         '''
+        logging.info('Starting Locker network')
         self._setup_locker_chains()
         self._create_bridge()
         self._enable_nat()
@@ -411,5 +413,6 @@ class Network(object):
         - rules from FORWARD chain, FILTER table
         - rules from POSTROUTING chain, NAT table
         '''
+        logging.info('Stopping Locker network')
         self._disable_nat()
         self._delete_bridge()

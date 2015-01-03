@@ -5,103 +5,150 @@
 Test the Container class
 '''
 
+import logging
+import os
+import tempfile
+import time
 import unittest
+
+import yaml
 from colorama import Fore
 from locker import Container, Project
 from locker.container import CommandFailed
-import logging
-import yaml
-import os
 
-class TestInit(unittest.TestCase):
-    ''' Test instantiation of the Container class
+def setUpModule():
+    logging.basicConfig(format='%(asctime)s, %(levelname)8s: %(message)s', level=logging.INFO)
+    logging.root.setLevel(logging.INFO)
 
-    Uses fake configuration data.
+class LockerTest(unittest.TestCase):
+    ''' Defines two containers that have not yet been created
+
+    - The args are side effect free.
+    - Creates project instance in setUp()
+    - Cleans project instance in tearDown()
+    - Does not create any containers
+    - Does not start network instance
     '''
 
-    def setUp(self):
-        name = 'name'
-        yml = {
-                'containerA':   dict(),
-                'containerB':   dict(),
-                }
-        args = {
-                'project':      'project',
-                'containers':   [],
-                'verbose':      True,
+    def init_config(self, containers=[]):
+        self.yml = {
+            'ubuntu': {
+                'template': {
+                    'name':    "ubuntu",
+                    'release': "trusty",
+                    'arch':    "amd64",
+                },
+                "ports": [
+                    "8000:8000",
+                    "8000:8000/udp",
+                    "8001:8001/tcp",
+                    "192.168.2.123:8002:8002",
+                    "192.168.2.123:8003:8003/tcp",
+                    "192.168.2.123:8003:8003/udp",
+                    "invalid",
+                ],
+                "fqdn": "test.example.net",
+                "dns": [
+                    "8.8.8.8",
+                    "$bridge",
+                    "$copy",
+                ],
+                "links": [
+                    "sshd:something",
+                ],
+                "cgroup": [
+                    "memory.limit_in_bytes=200000000",
+                ],
+                "volumes": [
+                    self.tmpdir.name + "/var/log:/var/log/",
+                    self.tmpdir.name + "/foo:/bar",
+                ],
+            },
+            'sshd': {
+                'clone': 'test_ubuntu',
+                "links": [
+                    "ubuntu",
+                ],
             }
-        self.project = Project(yml, args)
+        }
+        self.args = {
+            'project':          'test',
+            'containers':       containers,
+            'verbose':          False,
+            'lxcpath':          self.tmpdir.name,
+            'no_ports':         False,
+            'no_links':         False,
+            'add_hosts':        False,
+            'restart':          False,
+            'delete_dont_ask':  True,
+        }
 
-    def test_init(self):
+    def setUp(self, containers=[]):
+        self.tmpdir = tempfile.TemporaryDirectory(dir='/tmp/locker')
+        self.init_config(containers)
+        self.project = Project(self.yml, self.args)
+
+    def tearDown(self):
+        self.project.cleanup()
+        self.tmpdir.cleanup()
+
+class TestInit(LockerTest):
+    ''' Test instantiation of the Container class
+
+    Does not have any side effects
+    '''
+
+    def test_init_negative(self):
         with self.assertRaises(TypeError):
             Container()
         with self.assertRaises(TypeError):
-            Container('project_foo', None, self.project)
+            Container('project_sshd', None, self.project)
         with self.assertRaises(TypeError):
-            Container('project_foo', dict(), None)
-        self.assertIsInstance(Container('project_foo', dict(), self.project), Container)
+            Container('project_sshd', dict(), None)
+        self.assertIsInstance(Container('project_sshd', dict(), self.project), Container)
 
-class TestProperties(unittest.TestCase):
+    def test_init_positive(self):
+        self.assertIsInstance(Container('project_new', dict(), self.project), Container)
+
+class TestProperties(LockerTest):
     ''' Test getter and setter
 
-    Uses fake configuration data.
+    Does not have any side effects
     '''
-    def setUp(self):
-        yml = {
-                'containerA':   dict(),
-                'containerB':   dict(),
-                }
-        args = {
-                'project':      'project',
-                'containers':   [],
-                'verbose':      True,
-            }
-        project = Project(yml, args)
-        self.container = Container('project_containerA', yml['containerA'], project)
 
     def test_color(self):
         for invalid_color in [' ', '1test', '$Svs', 'fön', 'test test', None, [], {}]:
             with self.assertRaises(ValueError):
-                self.container.color = invalid_color
+                self.project.containers[1].color = invalid_color
 
         for valid_color in [Fore.BLACK, Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN, Fore.WHITE, '']:
-            self.container.color = valid_color
-            self.assertEqual(self.container.color, valid_color)
+            self.project.containers[1].color = valid_color
+            self.assertEqual(self.project.containers[1].color, valid_color)
 
     def test_logger(self):
         for invalid_logger in [None, [], {}, logging, lambda x: x+1, '']:
             with self.assertRaises(TypeError):
-                self.container.logger = invalid_logger
+                self.project.containers[1].logger = invalid_logger
         for valid_logger in [logging.getLogger(name) for name in ['foo', 'bar', '']]:
-            self.container.logger = valid_logger
-            self.assertEqual(self.container.logger, valid_logger)
+            self.project.containers[1].logger = valid_logger
+            self.assertEqual(self.project.containers[1].logger, valid_logger)
 
     def test_yml(self):
         for invalid_yml in [None, [], logging, lambda x: x+1, '']:
             with self.assertRaises(TypeError):
-                self.container.yml = invalid_yml
+                self.project.containers[1].yml = invalid_yml
         for valid_yml in [{}, {'foo': 'bar'}]:
-            self.container.yml = valid_yml
-            self.assertEqual(self.container.yml, valid_yml)
+            self.project.containers[1].yml = valid_yml
+            self.assertEqual(self.project.containers[1].yml, valid_yml)
 
-class TestStatic(unittest.TestCase):
+class TestStatic(LockerTest):
     ''' Test static methods of Container class
 
-    Uses fake configuration data.
+    Does not have any side effects
     '''
 
     def setUp(self):
-        name = 'name'
-        self.yml = {
-                'containerA':   dict(),
-                'containerB':   dict(),
-                }
-        args = {
-                'project':      'project',
-                'containers':   ['project_containerA'],
-                'verbose':      True,
-            }
-        self.project = Project(self.yml, args)
+        super().setUp(['test_ubuntu'])
 
     def test_get_containers(self):
         containers, all_containers = Container.get_containers(self.project, self.yml)
@@ -114,115 +161,61 @@ class TestStatic(unittest.TestCase):
         for container in all_containers:
             self.assertIsInstance(container, Container)
 
-class TestStart(unittest.TestCase):
+class TestStartStop(LockerTest):
+    ''' Test if containers can be started, restarted, and stopped
+
+    Has side effects:
+    - Creates container
+    - Creates bridge
+    '''
+
     def setUp(self):
-        args = {
-                'project':      'locker',
-                'containers':   [],
-                'file':         'docs/examples/locker.yaml',
-                'verbose':      True,
-                'restart':      True,
-                'no_ports':     False,
-                'no_links':     False,
-            }
-        self.yml = yaml.load(open('%s' % (args['file'])))
-        self.project = Project(self.yml, args)
+        super().setUp(['test_ubuntu'])
 
-    def test_start_with_restart(self):
+    def test_start_defined(self):
+        self.project.create()
+        self.project.network.start()
+        self.project.stop()
         for container in self.project.containers:
+            print(container.name)
+            self.assertEqual(container.state, 'STOPPED')
+            self.assertTrue(container.defined)
             container.start()
-            self.assertEqual(container.state, 'RUNNING')
-
-    def test_start_without_restart(self):
-        self.project.args['restart'] = False
+        self.project.args['restart'] = True
         for container in self.project.containers:
+            self.assertEqual(container.state, 'RUNNING')
             container.start()
-            self.assertEqual(container.state, 'RUNNING')
-
-    def test_start_undefined(self):
-        yml_str = '''\
-undefined:
-  template:
-    name: "ubuntu"
-    release: "precise"
-'''
-        args = {
-            'project':      'locker',
-            'containers':   [],
-            'verbose':      True,
-            'restart':      True,
-            'no_ports':     False,
-            'no_links':     False,
-        }
-        yml = yaml.load(yml_str)
-        project = Project(yml, args)
-        self.assertEqual(len(project.containers), 1)
-        self.assertEqual(project.containers[0].defined, False)
-        self.assertEqual(project.containers[0].state, 'STOPPED')
-        project.containers[0].start()
-        self.assertEqual(project.containers[0].state, 'STOPPED')
-
-
-class TestStop(unittest.TestCase):
-    def setUp(self):
-        args = {
-                'project':      'locker',
-                'containers':   [],
-                'file':         'docs/examples/locker.yaml',
-                'verbose':      True,
-                'restart':      True,
-                'no_ports':     False,
-                'no_links':     False,
-            }
-        self.yml = yaml.load(open('%s' % (args['file'])))
-        self.project = Project(self.yml, args)
-
-    def test_stop(self):
-        for container in self.project.containers:
+            container.get_port_rules()
+            container.linked_to()
+            container.get_cgroup_item('memory.limit_in_bytes')
+            container.get_cgroup_item('invalid')
             container.stop()
             self.assertEqual(container.state, 'STOPPED')
-        for container in self.project.containers:
-            container.stop()
-            self.assertEqual(container.state, 'STOPPED')
+            container.get_cgroup_item('memory.limit_in_bytes')
+            container.get_cgroup_item('invalid')
 
-    def test_stop_undefined(self):
-        yml_str = '''\
-undefined:
-  template:
-    name: "ubuntu"
-    release: "precise"
-'''
-        args = {
-            'project':      'locker',
-            'containers':   [],
-            'verbose':      True,
-            'restart':      True,
-            'no_ports':     False,
-            'no_links':     False,
-        }
-        yml = yaml.load(yml_str)
-        project = Project(yml, args)
-        self.assertEqual(len(project.containers), 1)
-        self.assertEqual(project.containers[0].defined, False)
-        self.assertEqual(project.containers[0].state, 'STOPPED')
-        project.containers[0].stop()
-        self.assertEqual(project.containers[0].state, 'STOPPED')
+    #def test_start_undefined(self):
+        #undefined = [c for c in self.project.all_containers if c not in self.project.containers]
+        #self.assertTrue(len(undefined) > 0)
+        #for container in undefined:
+            #self.assertEqual(container.state, 'STOPPED')
+            #with self.assertRaises(CommandFailed):
+                #container.start()
+            #self.assertEqual(container.state, 'STOPPED')
+        #self.project.args['restart'] = True
+        #for container in undefined:
+            #container.start()
+            #self.assertEqual(container.state, 'STOPPED')
 
-class TestPorts(unittest.TestCase):
+class TestPorts(LockerTest):
+
     def setUp(self):
-        args = {
-                'project':    'locker',
-                'containers': [],
-                'file':       'docs/examples/locker.yaml',
-                'verbose':    True,
-                'restart':    False,
-                'no_ports':   False,
-                'no_links':   False,
-            }
-        self.yml = yaml.load(open('%s' % (args['file'])))
-        self.project = Project(self.yml, args)
+        super().setUp((['test_ubuntu']))
 
-    def test_ports_running(self):
+    def test_ports(self):
+        self.project.create()
+        self.project.network.start()
+        self.project.stop()
         for container in self.project.containers:
             container.start()
             self.assertEqual(container.state, 'RUNNING')
@@ -231,107 +224,58 @@ class TestPorts(unittest.TestCase):
                 self.assertEqual(container._has_netfilter_rules(), True)
             else:
                 self.assertEqual(container._has_netfilter_rules(), False)
-
-    def test_ports_stopped(self):
-        return # Don't run this this as rmports should be called via the
-               # Project instance to avoid errors in iptc module
+            print(container.get_port_rules())
         for container in self.project.containers:
+            container.rmports()
             container.stop()
             self.assertEqual(container.state, 'STOPPED')
-            self.assertEqual(container.ports(), True)
-            self.assertEqual(container.has_netfilter_rules(), False)
-
-class TestRmPorts(unittest.TestCase):
-    def setUp(self):
-        args = {
-                'project':    'locker',
-                'containers': [],
-                'file':       'docs/examples/locker.yaml',
-                'verbose':    True,
-                'restart':    True,
-                'no_ports':   False,
-                'no_links':   False,
-            }
-        self.yml = yaml.load(open('%s' % (args['file'])))
-        self.project = Project(self.yml, args)
-
-    def test_rmports(self):
-        return # Don't run this this as rmports should be called via the
-               # Project instance to avoid errors in iptc module
-        for container in self.project.containers:
-            print(container.name, container.state)
             container.rmports()
             self.assertEqual(container._has_netfilter_rules(), False)
 
-class TestRmUndefined(unittest.TestCase):
-    ''' Test removal of undefined container
-
-    Uses fake configuration data.
+class TestRm(LockerTest):
+    ''' Test removal of containers
     '''
 
     def setUp(self):
-        name = 'name'
-        self.yml = {
-                'containerA':   dict(),
-                'containerB':   dict(),
-                }
-        args = {
-                'project':      'project',
-                'containers':   ['project_containerA'],
-                'verbose':      True,
-            }
-        self.project = Project(self.yml, args)
+        super().setUp(['test_ubuntu'])
 
-    def test_rm(self):
-        for container in self.project.containers:
+    def test_rm_undefined(self):
+        undefined = [c for c in self.project.all_containers if c not in self.project.containers]
+        for container in undefined:
             self.assertEqual(container.defined, False)
             container.remove()
             self.assertEqual(container.defined, False)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_rm(self):
+        for container in self.project.containers:
+            if not container.defined:
+                container.create()
+            self.assertEqual(container.defined, True)
+            container.remove()
+            self.assertEqual(container.defined, False)
 
-class TestCreateClone(unittest.TestCase):
-    def setUp(self):
-        args = {
-                'project':    'test',
-                'containers': ['test_ssh'],
-                'verbose':    True,
-                'restart':    True,
-                'no_ports':   False,
-                'no_links':   False,
-                'delete_dont_ask': True,
-                'dont_copy_on_create': True,
-            }
-        self.yml = {
-                'ssh': { 'clone': 'sshd'},
-                }
-        self.project = Project(self.yml, args)
+class TestCreateClone(LockerTest):
 
     def test_create_clone(self):
-        for container in self.project.containers:
-            if container.defined:
-                container.remove()
-            self.assertEqual(container.defined, False)
-            container.create()
-            self.assertEqual(container.defined, True)
+        ubuntu = self.project.all_containers[1]
+        sshd = self.project.all_containers[0]
+        self.assertEqual(ubuntu.defined, False)
+        self.assertEqual(sshd.defined, False)
+        ubuntu.create()
+        self.assertEqual(ubuntu.defined, True)
+        sshd.create()
+        self.assertEqual(sshd.defined, True)
+        self.project.start()
+        self.project.stop()
 
-class TestCreateCloneError(unittest.TestCase):
+class TestCreateCloneError(LockerTest):
     def setUp(self):
-        args = {
-                'project':    'test',
-                'containers': ['test_ssh'],
-                'verbose':    True,
-                'restart':    True,
-                'no_ports':   False,
-                'no_links':   False,
-                'delete_dont_ask': True,
-                'dont_copy_on_create': True,
-            }
+        super().setUp()
+        self.args['containers'] = ['test_sshd']
         self.yml = {
-                'ssh': { 'clone': 'doesnotexist'},
-                }
-        self.project = Project(self.yml, args)
+                'sshd': { 'clone': 'invalid_container'},
+            }
+        self.project = Project(self.yml, self.args)
 
     def test_create_clone(self):
         for container in self.project.containers:
@@ -342,59 +286,5 @@ class TestCreateCloneError(unittest.TestCase):
                 container.create()
             self.assertEqual(container.defined, False)
 
-class TestCreateTemplate(unittest.TestCase):
-    def setUp(self):
-        args = {
-                'project':    'test',
-                'containers': ['test_ssh'],
-                'verbose':    True,
-                'restart':    True,
-                'no_ports':   False,
-                'no_links':   False,
-                'delete_dont_ask': True,
-                'dont_copy_on_create': True,
-            }
-        self.yml = {
-                'ssh': {
-                    'template': {
-                        'name': 'sshd',
-                    }
-                },
-            }
-        self.project = Project(self.yml, args)
-
-    def test_create_template(self):
-        for container in self.project.containers:
-            if container.defined:
-                container.remove()
-            self.assertEqual(container.defined, False)
-            # Removed container instances cannot be re-created
-            container = Container(container.name, container.yml, container.project)
-            self.assertEqual(container.defined, False)
-            container.create()
-            self.assertEqual(container.defined, True)
-
-class TestRm(unittest.TestCase):
-    def setUp(self):
-        args = {
-                'project':    'test',
-                'containers': ['test_ssh'],
-                'verbose':    True,
-                'restart':    True,
-                'no_ports':   False,
-                'no_links':   False,
-                'delete_dont_ask': True,
-                'dont_copy_on_create': True,
-            }
-        self.yml = {
-                'ssh': { 'clone': 'sshd'},
-                }
-        self.project = Project(self.yml, args)
-
-    def test_rm(self):
-        for container in self.project.containers:
-            if not container.defined:
-                container.create()
-            self.assertEqual(container.defined, True)
-            container.remove()
-            self.assertEqual(container.defined, False)
+if __name__ == "__main__":
+    unittest.main()

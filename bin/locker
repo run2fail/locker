@@ -78,7 +78,7 @@ def parse_args():
     parser.add_argument(
         '--lxcpath', '-P',
         default='/var/lib/lxc', required=False,
-        help='Root path the containers (default=/var/lib/lxc)')
+        help='Root path of the containers (default=/var/lib/lxc)')
 
     subparsers = parser.add_subparsers(help='sub-command help', dest='command')
     subparsers.required = True
