@@ -85,11 +85,15 @@ class Container(lxc.Container):
         if self.logger.propagate:
             self.logger.propagate = False
             reset_color = Fore.RESET if self.color else ''
-            formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + color + '[' + name + '] %(message)s' + reset_color)
+            sname = name.split('_')[1]
+            formatter = logging.Formatter('%(asctime)s, %(levelname)8s: ' + color + '[' + sname + '] %(message)s' + reset_color)
             handler = logging.StreamHandler()
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
         lxc.Container.__init__(self, name, config_path)
+
+    def __str__(self):
+        return self.name
 
     @staticmethod
     def get_containers(project, yml):
@@ -97,6 +101,7 @@ class Container(lxc.Container):
 
         Returns lists of containers that have been defined in the YAML
         configuration file.
+        TODO Use dict instead of list
 
         :param yml: YAML project configuration
         :returns:  (List of selected containers, List of all containers)
@@ -108,18 +113,15 @@ class Container(lxc.Container):
         for num, name in enumerate(sorted(yml.keys())):
             pname = '%s_%s' % (project.name, name)
             if pname not in lxc.list_containers():
-                logging.debug('Container \"%s\" does not exist yet or is not accessible as this user.', pname)
-            if project.args.get('no_color', False):
-                color = ''
-            else:
-                color = colors[num % len(colors)]
+                logging.debug('Container does not exist yet or is not accessible: %s', pname)
+            color = colors[num % len(colors)] if not project.args.get('no_color', False) else ''
             lxcpath = project.args.get('lxcpath', '/var/lib/lxc')
             container = Container(pname, yml[name], project, color, lxcpath)
 
             all_containers.append(container)
             if ('containers' in project.args and # required for cleanup command
                 len(project.args['containers']) and
-                pname not in project.args['containers']):
+                name not in project.args['containers']):
                 continue
             containers.append(container)
         logging.debug('Selected containers: %s', [con.name for con in containers])
@@ -145,9 +147,6 @@ class Container(lxc.Container):
         self.set_config_item('lxc.network.0.ipv4', ip.split('/')[0])
         self.set_config_item('lxc.network.0.ipv4.gateway', gateway)
 
-        #self.logger.debug('Network configuration: link=%s, veth=%s, ipv4=%s, gateway=%s',
-                          #self.network[0].link, self.network[0].veth_pair,
-                          #self.network[0].ipv4, self.network[0].ipv4_gateway)
         self.save_config()
 
     def _get_dns(self):
@@ -173,7 +172,7 @@ class Container(lxc.Container):
                     list_of_dns.append(str(netaddr.IPAddress(dns)))
                 except netaddr.AddrFormatError:
                     self.logger.warning('Invalid DNS address specified: %s', dns)
-        # removed duplicates but keep original order
+        # remove duplicates but keep original order
         return list(OrderedDict.fromkeys(list_of_dns))
 
     @return_if_not_defined
@@ -188,24 +187,18 @@ class Container(lxc.Container):
         :param files: List of filenames where to write the name server entries
         '''
         self.logger.debug('Enabling name resolution: %s', dns)
-        try:
-            rootfs = self.get_config_item('lxc.rootfs')
-        except KeyError:
-            self.logger.debug('rootfs is still empty, container defined = %s',
-                              self.defined)
-            return
-        assert rootfs.startswith(self.project.args.get('lxcpath', '/var/lib/lxc'))
+        assert self.rootfs.startswith(self.project.args.get('lxcpath', '/var/lib/lxc'))
 
-        _files = ['%s/%s' % (rootfs, rfile) for rfile in files]
+        _files = ['%s/%s' % (self.rootfs, rfile) for rfile in files]
         for rconf_file in _files:
             try:
                 with open(rconf_file, 'w') as rconf:
                     for server in dns:
                         rconf.write('nameserver %s\n' % server)
                     rconf.write('\n')
-                self.logger.debug('Updated: %s', rconf_file)
             except Exception as exception:
-                self.logger.warning('Could not set %s: %s', rconf_file, exception)
+                self.logger.warning('Could not update nameservers in %s: %s', rconf_file, exception)
+            self.logger.debug('Updated: %s', rconf_file)
 
     @return_if_not_defined
     def cgroup(self):
@@ -216,12 +209,9 @@ class Container(lxc.Container):
         The method will update the current values of the container if it is
         running and always write the new values to the container's config file.
         '''
-
         self.logger.info('Setting cgroup configuration')
         if not 'cgroup' in self.yml:
-            self.logger.debug('No cgroup settings')
             return
-        self.logger.debug('Applying cgroup settings')
         regex = re.compile(regex_cgroup)
         for cgroup in self.yml['cgroup']:
             match = regex.match(cgroup)
@@ -230,10 +220,10 @@ class Container(lxc.Container):
                 continue
             key = match.group(1)
             value = match.group(2)
-            if self.running:
-                if not self.set_cgroup_item(key, value):
-                    self.logger.warning('Was not able to set: %s = %s', key, value)
-            self.set_config_item('lxc.cgroup.' + key, value)
+            if self.running and not self.set_cgroup_item(key, value):
+                self.logger.warning('Was not able to set while running: %s = %s', key, value)
+            elif not self.set_config_item('lxc.cgroup.' + key, value):
+                self.logger.warning('Was not able to set in config: %s = %s', key, value)
         self.save_config()
 
     @return_if_not_defined
@@ -247,7 +237,7 @@ class Container(lxc.Container):
         :param family: Filter by the address family
         :returns: List of IPs or None if the container is not defined or stopped
         '''
-        ips = lxc.Container.get_ips(self)
+        ips = lxc.Container.get_ips(self, family=family)
         while len(ips) == 0 and self.running and retries > 0:
             self.logger.debug('Waiting to acquire an IP address')
             time.sleep(1)
@@ -271,7 +261,9 @@ class Container(lxc.Container):
 
     @color.setter
     def color(self, value):
-        if value not in [Fore.BLACK, Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN, Fore.WHITE, '']:
+        valid_colors = [Fore.BLACK, Fore.RED, Fore.GREEN, Fore.YELLOW,
+                        Fore.BLUE, Fore.MAGENTA, Fore.CYAN, Fore.WHITE, '']
+        if value not in valid_colors:
             raise ValueError('Invalid color: %s' % value)
         self._color = value
 
@@ -294,6 +286,13 @@ class Container(lxc.Container):
         if not isinstance(value, logging.Logger):
             raise TypeError('Invalid type for property logger: %s, required type = %s' % (type(value), type(logging.Logger)))
         self._logger = value
+
+    @property
+    def rootfs(self):
+        rootfs = self.get_config_item('lxc.rootfs')
+        if not len(rootfs):
+            raise ValueError('rootfs is empty, container defined = %s', self.defined)
+        return rootfs
 
     @return_if_not_defined
     def start(self):
@@ -365,7 +364,7 @@ class Container(lxc.Container):
                 self.logger.error('Creation failed from template: %s', self.yml['template']['name'])
                 self.logger.error('Try again with \"--verbose\" for more information')
                 raise CommandFailed('Creation failed from template: %s' % self.yml['template']['name'])
-            self._copy_mounted()
+            self._move_dirs()
 
         def _clone_from_existing(self):
             ''' Clone container from an existing container
@@ -390,7 +389,7 @@ class Container(lxc.Container):
             if not cloned or not cloned.defined:
                 self.logger.error('Cloning failed from: %s', origin.name)
                 raise CommandFailed('Cloning failed from: %s' % origin.name)
-            self._copy_mounted()
+            self._move_dirs()
 
         if len([x for x in self.yml if x in ['template', 'clone']]) != 1:
             self.logger.error('You must provide either \"template\" or \"clone\" in container configuration')
@@ -412,9 +411,9 @@ class Container(lxc.Container):
         '''
 
         self.logger.info('Removing container')
-        if not self.project.args.get('delete_dont_ask', False):
+        if not self.project.args.get('force_delete', False):
             # TODO Implement a timeout here?!?
-            input_var = input("Delete %s? [y/N]: " % (self.name))
+            input_var = input("Delete %s? [y/N]: " % (self.name.split['_'][1]))
             if input_var not in ['y', 'Y']:
                 self.logger.info('Skipping deletion')
                 return
@@ -516,7 +515,6 @@ class Container(lxc.Container):
             regex = re.compile(regex_ports)
             match = regex.match(fwport)
             if not match:
-                self.logger.error('Invalid port forwarding directive: %s', fwport)
                 raise ValueError('Invalid port forwarding directive: %s', fwport)
             mdict = match.groupdict()
             mdict['proto'] = mdict['proto_udp'] or 'tcp'
@@ -539,11 +537,7 @@ class Container(lxc.Container):
                 port_conf = _parse_port_conf(self, fwport)
             except ValueError:
                 continue
-            ips = self.get_ips()
-            for container_ip in ips:
-                if container_ip.find(':') >= 0:
-                    self.logger.warning('Found unsupported IPv6 address: %s', container_ip)
-                    continue
+            for container_ip in self.get_ips():
                 self._add_port_rules(container_ip, port_conf, locker_nat_chain, filter_forward)
 
     def _set_hostname(self):
@@ -557,14 +551,7 @@ class Container(lxc.Container):
             self.logger.debug('Empty fqdn')
             return
         hostname = fqdn.split('.')[0]
-        try:
-            rootfs = self.get_config_item('lxc.rootfs')
-        except KeyError:
-            self.logger.debug('rootfs is still empty, container defined = %s',
-                              self.defined)
-            return
-        assert len(rootfs)
-        etc_hosts = '%s/etc/hosts' % (rootfs)
+        etc_hosts = '%s/etc/hosts' % (self.rootfs)
         try:
             hosts = Hosts(etc_hosts, self.logger)
             names = [fqdn, hostname]
@@ -572,27 +559,21 @@ class Container(lxc.Container):
             hosts.save()
         except:
             pass
-        etc_hostname = '%s/etc/hostname' % (rootfs)
+        etc_hostname = '%s/etc/hostname' % (self.rootfs)
         with open(etc_hostname, 'w+') as hostname_fd:
             hostname_fd.write('%s\d' % hostname)
 
+    @return_if_not_defined
     def _generate_fstab(self):
         ''' Generate a file system table for the container
 
         This function generates a fstab file based on the volume information in the
         YAML configuration.
         Currently only bind mounted directories are supported.
+        TODO Revvaluate if the fstab file is better than lxc.mount.entry
         '''
-        try:
-            fstab_file = self.get_config_item('lxc.mount')
-        except KeyError:
-            fstab_file = None
-
-        if not fstab_file:
-            # TODO Why is lxc.mount sometimes empty?!?
-            fstab_file = '%s/%s/fstab' % (self.get_config_path(), self.name)
-            self.logger.warning('Empty lxc.mount config item, setting: %s', fstab_file)
-
+        fstab_file = self.get_config_item('lxc.mount')
+        assert len(fstab_file)
         self.logger.debug('Generating fstab: %s', fstab_file)
         with open(fstab_file, 'w+') as fstab:
             if 'volumes' in self.yml:
@@ -631,76 +612,85 @@ class Container(lxc.Container):
             self.logger.warning('An arror occured searching the netfiler rules: %s', err)
         return dnat_rules
 
-    def _copy_mounted(self):
-        ''' Copy data from inside the container to the host
+    def _move_dirs(self):
+        ''' Move directories from inside the container to the host
 
-        This method optionally enables to copy data from inside the container
-        to the host so that non-empty bind mounts can be set up.
+        This method optionally enables to move data from inside the container
+        to the host so that non-empty bind mounts can be set up. If a directory
+        does not exist within the container, it will be created.
 
-        Actually, this method moves the data from the container to the host to
+        This method moves the data from the container to the host to
         preserve the owner, group, and mode configuration.
         TODO Is there no way to "cp -ar" with shutil or another module?
-        TODO Refactor method in smaller parts
-
-        :param container: The container to handle
         '''
 
-        def _remove_trailing_slash(string):
-            '''
-            Dirty work-around that should be removed in the future, especially
-            when files should be supported as bind-mounts
-            '''
+        def _remove_slash(string):
+            ''' Temp. work-around '''
             if string.endswith('/'):
                 return string[:-1]
             return string
 
-        if self.project.args.get('dont_copy_on_create', False):
-            self.logger.debug('Skipping copying of mounts from inside container to outside')
+        if self.project.args.get('no_move', False):
+            self.logger.debug('Skipping moving of directories from container to host system')
             return
         if 'volumes' not in self.yml:
             self.logger.debug('No volumes defined')
             return
 
-        rootfs = self.get_config_item('lxc.rootfs')
-        assert len(rootfs)
+        rootfs = self.rootfs
         for volume in self.yml['volumes']:
             # TODO Use regex!
-            outside, inside = [_remove_trailing_slash(locker.util.expand_vars(s.strip(), self)) for s in volume.split(':')]
+            outside, inside = [_remove_slash(locker.util.expand_vars(s.strip(), self)) for s in volume.split(':')]
+            outside_parent = os.path.dirname(outside)
+
             if os.path.exists(outside):
-                self.logger.warning('Path \"%s\" exists on host, skipping', outside)
+                self.logger.warning('Directory exists on host system, skipping: %s', outside)
                 continue
             if os.path.isfile(rootfs+inside):
-                self.logger.warning('\"%s\" is a file (not supported yet), skipping', rootfs+inside)
+                self.logger.warning('Files are not supported, skipping: %s', rootfs+inside)
                 continue
 
-            outside_parent = os.path.dirname(outside)
-            if os.path.exists(outside_parent):
-                msg = "Parent folder \"%s\" already exists. Continue to move data to \"%s\"? [y/N]: " % (outside_parent, outside)
-                input_var = 'y' # input(msg)
-                if input_var not in ['y', 'Y']:
-                    self.logger.info('Skipping volume \"%s\"', volume)
-                    continue
-            else:
+            if not os.path.exists(outside_parent):
                 try:
                     os.makedirs(outside_parent)
-                    self.logger.debug('Created directory \"%s\"', outside_parent)
-                except OSError:
-                    self.logger.warning('Could not create parent directory \"%s\". Data not moved from container to host!', outside_parent)
+                except OSError as error:
+                    self.logger.error('Could not create parent directory on host system: %s, %s', outside_parent, error)
+                    continue
+                else:
+                    self.logger.debug('Created parent directory on host system: %s', outside_parent)
+
+            if os.path.isdir(rootfs+inside):
+                # Move should preseve owner and group,
+                # recreate dir afterwards in container again as mount point
+                self.logger.debug('Moving directory: %s -> %s', rootfs+inside, outside)
+                try:
+                    shutil.move(rootfs+inside, outside)
+                except shutil.Error as error:
+                    self.logger.error('Could not move directory: %s', error)
                     continue
 
-            if os.path.exists(rootfs+inside):
-                # Move from container to host should preseve owner and group, recreate dir afterwards in container
-                self.logger.debug('Move \"%s\" to \"%s\"', rootfs+inside, outside)
-                shutil.move(rootfs+inside, outside)
-                os.mkdir(rootfs+inside)
-            else:
                 try:
-                    os.makedirs(outside)
-                    os.makedirs(rootfs+inside)
-                    self.logger.warning('\"%s\" did not exist within the container, created empty directory on host', outside)
+                    os.mkdir(rootfs+inside)
                 except OSError:
-                    self.logger.warning('Could not create \"%s\" on host (\"%s\" does not exist inside the container)', outside, inside)
+                    self.logger.error('Could not create directory in the container: %s', rootfs+inside)
                     continue
+                continue
+
+            try:
+                os.makedirs(outside)
+            except OSError:
+                self.logger.error('Could not create directory on host system: %s', outside)
+                continue
+            else:
+                self.logger.info('Created empty on host system: %s', outside)
+
+            try:
+                os.makedirs(rootfs+inside)
+            except OSError:
+                self.logger.error('Could not create directory in the container: %s', rootfs+inside)
+                continue
+            else:
+                self.logger.info('Created empty directory in the container: %s', rootfs+inside)
 
     @return_if_not_defined
     def links(self, auto_update=False):
@@ -713,7 +703,7 @@ class Container(lxc.Container):
                             the container to link to is purposely stopped and
                             unavailable.
         '''
-        self.logger.debug('Updating links')
+        self.logger.info('Updating links')
         if not 'links' in self.yml:
             self.logger.debug('No links defined')
             return
@@ -811,18 +801,7 @@ class Container(lxc.Container):
 
         :params: List of entries to add, format (ipaddr, container name, names)
         '''
-        try:
-            rootfs = self.get_config_item('lxc.rootfs')
-        except KeyError:
-            rootfs = None
-
-        if not rootfs:
-            # TODO Why is lxc.rootfs sometimes empty?!?
-            rootfs = '%s/%s/rootfs' % (self.get_config_path(), self.name)
-            self.logger.warning('Empty lxc.rootfs config item, setting: %s', rootfs)
-
-        assert len(rootfs)
-        etc_hosts = '%s/etc/hosts' % (rootfs)
+        etc_hosts = '%s/etc/hosts' % (self.rootfs)
         try:
             hosts = Hosts(etc_hosts, self.logger)
             hosts.remove_by_comment('^%s_.*$' % self.project.name)
@@ -840,6 +819,7 @@ class Container(lxc.Container):
         self._update_etc_hosts([])
         self._remove_link_rules()
 
+    @return_if_not_defined
     def linked_to(self):
         ''' Return list of linked containers based on /etc/hosts
 
@@ -850,20 +830,15 @@ class Container(lxc.Container):
         :returns: List of linked containers
         '''
         linked = list()
+        etc_hosts = '%s/etc/hosts' % (self.rootfs)
         try:
-            rootfs = self.get_config_item('lxc.rootfs')
-        except KeyError:
-            return linked
-        assert len(rootfs)
-        etc_hosts = '%s/etc/hosts' % (rootfs)
-        try:
-            with open(etc_hosts, 'r') as etc_hosts_rfile:
-                lines = etc_hosts_rfile.readlines()
+            with open(etc_hosts, 'r') as etc_hosts_fd:
+                lines = etc_hosts_fd.readlines()
         except FileNotFoundError:
             return linked
 
         # TODO Use a better regex
-        regex = re.compile('^.* # (%s_.+)$' % self.project.name)
+        regex = re.compile('^.* # %s_(.+)$' % self.project.name)
         for line in lines:
             match = regex.match(line)
             if match:
@@ -907,6 +882,5 @@ class Container(lxc.Container):
             # value but this may still be a list.
             value = value[0]
         else:
-            self.logger.error('Unexpected value for cgroup item: %s = %s', key, value)
             raise ValueError('Unexpected value for cgroup item: %s = %s' % (key, value))
         return value

@@ -9,88 +9,16 @@ import logging
 import os
 import tempfile
 import time
-import unittest
 
 import yaml
 from colorama import Fore
 from locker import Container, Project
 from locker.container import CommandFailed
+from tests.locker_test import LockerTest
 
 def setUpModule():
     logging.basicConfig(format='%(asctime)s, %(levelname)8s: %(message)s', level=logging.INFO)
     logging.root.setLevel(logging.INFO)
-
-class LockerTest(unittest.TestCase):
-    ''' Defines two containers that have not yet been created
-
-    - The args are side effect free.
-    - Creates project instance in setUp()
-    - Cleans project instance in tearDown()
-    - Does not create any containers
-    - Does not start network instance
-    '''
-
-    def init_config(self, containers=[]):
-        self.yml = {
-            'ubuntu': {
-                'template': {
-                    'name':    "ubuntu",
-                    'release': "trusty",
-                    'arch':    "amd64",
-                },
-                "ports": [
-                    "8000:8000",
-                    "8000:8000/udp",
-                    "8001:8001/tcp",
-                    "192.168.2.123:8002:8002",
-                    "192.168.2.123:8003:8003/tcp",
-                    "192.168.2.123:8003:8003/udp",
-                    "invalid",
-                ],
-                "fqdn": "test.example.net",
-                "dns": [
-                    "8.8.8.8",
-                    "$bridge",
-                    "$copy",
-                ],
-                "links": [
-                    "sshd:something",
-                ],
-                "cgroup": [
-                    "memory.limit_in_bytes=200000000",
-                ],
-                "volumes": [
-                    self.tmpdir.name + "/var/log:/var/log/",
-                    self.tmpdir.name + "/foo:/bar",
-                ],
-            },
-            'sshd': {
-                'clone': 'test_ubuntu',
-                "links": [
-                    "ubuntu",
-                ],
-            }
-        }
-        self.args = {
-            'project':          'test',
-            'containers':       containers,
-            'verbose':          False,
-            'lxcpath':          self.tmpdir.name,
-            'no_ports':         False,
-            'no_links':         False,
-            'add_hosts':        False,
-            'restart':          False,
-            'delete_dont_ask':  True,
-        }
-
-    def setUp(self, containers=[]):
-        self.tmpdir = tempfile.TemporaryDirectory(dir='/tmp/locker')
-        self.init_config(containers)
-        self.project = Project(self.yml, self.args)
-
-    def tearDown(self):
-        self.project.cleanup()
-        self.tmpdir.cleanup()
 
 class TestInit(LockerTest):
     ''' Test instantiation of the Container class
@@ -148,7 +76,7 @@ class TestStatic(LockerTest):
     '''
 
     def setUp(self):
-        super().setUp(['test_ubuntu'])
+        super().setUp(['ubuntu'])
 
     def test_get_containers(self):
         containers, all_containers = Container.get_containers(self.project, self.yml)
@@ -170,14 +98,13 @@ class TestStartStop(LockerTest):
     '''
 
     def setUp(self):
-        super().setUp(['test_ubuntu'])
+        super().setUp(['ubuntu'])
 
     def test_start_defined(self):
         self.project.create()
         self.project.network.start()
         self.project.stop()
         for container in self.project.containers:
-            print(container.name)
             self.assertEqual(container.state, 'STOPPED')
             self.assertTrue(container.defined)
             container.start()
@@ -210,7 +137,7 @@ class TestStartStop(LockerTest):
 class TestPorts(LockerTest):
 
     def setUp(self):
-        super().setUp((['test_ubuntu']))
+        super().setUp((['ubuntu']))
 
     def test_ports(self):
         self.project.create()
@@ -237,7 +164,7 @@ class TestRm(LockerTest):
     '''
 
     def setUp(self):
-        super().setUp(['test_ubuntu'])
+        super().setUp(['ubuntu'])
 
     def test_rm_undefined(self):
         undefined = [c for c in self.project.all_containers if c not in self.project.containers]
@@ -264,6 +191,8 @@ class TestCreateClone(LockerTest):
         ubuntu.create()
         self.assertEqual(ubuntu.defined, True)
         sshd.create()
+        self.project = Project(self.yml, self.args) # due to the cloning
+        sshd = self.project.all_containers[0]
         self.assertEqual(sshd.defined, True)
         self.project.start()
         self.project.stop()
@@ -271,7 +200,7 @@ class TestCreateClone(LockerTest):
 class TestCreateCloneError(LockerTest):
     def setUp(self):
         super().setUp()
-        self.args['containers'] = ['test_sshd']
+        self.args['containers'] = ['sshd']
         self.yml = {
                 'sshd': { 'clone': 'invalid_container'},
             }

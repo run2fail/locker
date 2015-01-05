@@ -40,7 +40,10 @@ exists.
 Please note that while the container's ``name`` is ``foo`` in the YAML file,
 the actual name of the container on the system will be of the format
 ``$project_$name`` to enable containers with the same name in different
-projects.
+projects. ``clone`` always must refer to a container in the hosts file system,
+i.e., you must specify the name including the particular project prefix if this
+container has been created by Locker. Further on, the container must exist in
+the current ``lxcpath`` that can be optionally specified (see help output).
 
 The container name may only consist of alphanumeric characters but may not start
 with a digit.

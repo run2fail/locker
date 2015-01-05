@@ -106,7 +106,9 @@ Additional information about the commands:
     command.
 :status:
     Show container status. An extended status report is available when the
-    particular parameter is used.
+    particular parameter is used. The command shows the current state of the
+    running containers and ignores non-applied changes in the the YAML
+    configuration file or direct changes to the lxc container's ``config`` file.
 :links:
     Add/updates links in container. Automatically done when using start command.
     Subsequent calls will update the links and remove stale entries of

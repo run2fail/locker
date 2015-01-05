@@ -133,8 +133,7 @@ class Project(object):
         self.yml = yml
 
     def get_container(self, name):
-        '''
-        Get container based on name (excluding project prefix)
+        ''' Get container based on name (excluding project prefix)
 
         :param name: Name of the container
         :returns: Container object if found, else None
@@ -167,7 +166,7 @@ class Project(object):
 
         for container in containers:
             defined = container.defined
-            name = container.name
+            name = container.name.split('_')[1]
             state = container.state
             fqdn = container.yml.get('fqdn', '')
             ips = container.get_ips()
@@ -270,6 +269,10 @@ class Project(object):
                 pass
             except ValueError:
                 pass
+        # update lists to get cloned containers
+        containers, all_containers = Container.get_containers(self, self.yml)
+        self.containers = containers
+        self.all_containers = all_containers
 
     @container_list
     def remove(self, *, containers=None):
@@ -292,8 +295,8 @@ class Project(object):
         for container in containers:
             try:
                 container.ports()
-            except CommandFailed:
-                pass
+            except CommandFailed as exception:
+                container.logger.error(exception)
 
     @container_list
     def rmports(self, *, containers=None):

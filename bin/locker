@@ -87,7 +87,7 @@ def parse_args():
 
     subparser_rm = subparsers.add_parser('rm', help='Delete container')
     subparser_rm.add_argument(
-        '--delete-dont-ask', '-x',
+        '--force-delete', '-x',
         const=True, default=False, action='store_const',
         help='Don\'t ask for confirmation when deleting')
 
@@ -95,9 +95,9 @@ def parse_args():
 
     subparser_create = subparsers.add_parser('create', help='Create container')
     subparser_create.add_argument(
-        '--dont-copy-on-create', '-d',
+        '--no-move', '-d',
         const=True, default=False, action='store_const',
-        help='Don\'t copy directories/files defined as bind mounts to host after container creation (default: copy directories/files)')
+        help='Don\'t move directories/files defined as bind mounts to host after container creation (default: move directories/files)')
 
     ############################################################################
 
@@ -122,7 +122,7 @@ def parse_args():
             help='Add the containers\' hostnames to the /etc/hosts file of this host')
 
         sub.add_argument(
-            '--no-links', '-m',
+            '--no-links', '-l',
             const=True, default=False, action='store_const',
             help='Do not add/remove links (used with command start/stop)')
 

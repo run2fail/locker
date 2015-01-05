@@ -2,5 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import os
-
 assert os.geteuid() == 0
+
+from tests.locker_test import LockerTest

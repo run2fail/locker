@@ -35,6 +35,8 @@ def break_and_add_color(container, vals):
     :param container: Container instance (used for colored output)
     :param vals: List of string to break in multiple lines
     '''
+    if not vals:
+        return ''
     reset_color = Fore.RESET if container.color else ''
     return '\n'.join(['%s%s%s' % (container.color, v, reset_color) for v in vals])
 

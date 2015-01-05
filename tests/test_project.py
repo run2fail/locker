@@ -13,7 +13,7 @@ import unittest
 import yaml
 from colorama import Fore
 from locker import Container, Project
-from test_container import LockerTest
+from tests.locker_test import LockerTest
 
 def setUpModule():
     logging.basicConfig(format='%(asctime)s, %(levelname)8s: %(message)s', level=logging.INFO)
@@ -30,7 +30,6 @@ class TestStatus(LockerTest):
         self.project.status()
         self.project.create(containers=[self.project.get_container('ubuntu')])
         self.project.create(containers=[self.project.get_container('sshd')])
-        return
         self.project.network.start()
         self.project.start()
         self.project.status()
@@ -76,7 +75,6 @@ class TestLifeCycle(LockerTest):
     def test_lifecycle(self):
         self.project.create(containers=[self.project.get_container('ubuntu')])
         self.project.create()
-        self.project = Project(self.yml, self.args) # due to the cloning
         self.project.start()
         self.project.reboot()
         self.project.stop()
