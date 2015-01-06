@@ -194,7 +194,6 @@ To-Dos / Feature Wish List
 
 - Configuration related:
 
-  - Support different container paths
   - Support setting parameters in the container's config
     (e.g. ``/var/lib/lxc/container/config``) via the YAML configuration.
   - Setting environment variables in linked containers?! Not required in my use
@@ -213,9 +212,7 @@ To-Dos / Feature Wish List
 
 - Source code related:
 
-  - Write real unit tests without side-effects (see next section for further
-    information)
-  - Provide dedicated YAML files for the tests and stop using example files.
+  - Further improve test coverage (currently about 80%)
 
 - User interface related:
 
