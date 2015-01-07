@@ -52,3 +52,17 @@ Limitations
   not "seen" by most user space tools. For more information have a look at the
   `blog post <http://fabiokung.com/2014/03/13/memory-inside-linux-containers/>`_
   of Fabio Kung.
+- Please consider that Linux containers do not ship with an installed
+  application like Docker containers. Linux containers are usually created based
+  on template files that create base installation of your user space of choice.
+  You either must:
+
+  - write your own enhanced lxc template that includes a specific application
+    (this way the template file get somehow similar to a ``Dockerfile``),
+  - install your application manually, or
+  - deploy your application by using a configuration management system like
+    `puppet <http://puppetlabs.com/puppet/what-is-puppet>`_,
+    `chef <https://www.chef.io/chef/>`_, ...
+
+  The latter alternative is what I use as it enables to specify your system's
+  state in a declarative language in contrast to some hacked together script.

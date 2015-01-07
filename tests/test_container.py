@@ -38,6 +38,17 @@ class TestInit(LockerTest):
     def test_init_positive(self):
         self.assertIsInstance(Container('project_new', dict(), self.project), Container)
 
+class TestStr(LockerTest):
+    ''' Test str() and repr() '''
+
+    def test_str(self):
+        for container in self.project.containers:
+            container.logger.info(str(container))
+
+    def test_repr(self):
+        for container in self.project.containers:
+            container.logger.info(repr(container))
+
 class TestProperties(LockerTest):
     ''' Test getter and setter
 
@@ -202,7 +213,9 @@ class TestCreateCloneError(LockerTest):
         super().setUp()
         self.args['containers'] = ['sshd']
         self.yml = {
-                'sshd': { 'clone': 'invalid_container'},
+                'containers': {
+                    'sshd': { 'clone': 'invalid_container'},
+                }
             }
         self.project = Project(self.yml, self.args)
 

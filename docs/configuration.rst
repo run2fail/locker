@@ -20,13 +20,17 @@ Example:
 
 .. code:: yaml
 
-    foobar:
-        template:
-            name: "ubuntu"
-            release: "precise"
-            arch: "amd64"
+    containers:
+        foobar:
+            template:
+                name: "ubuntu"
+                release: "precise"
+                arch: "amd64"
+        test:
+            clone: "some_container"
 
-The first level in the YAML configuration are container names (``name``).
+The first level in the YAML configuration contains the ``containers`` sub-tree
+were you find the names (``name``) of all containers in the project.
 Containers are created as ``clone`` of other containers available on the system
 or based on ``template`` files that are usually part of the lxc user space
 tools. In the latter case, the map/sub-tree of ``template`` is provided as
@@ -76,14 +80,17 @@ owner. Of course directories can only be moved to the host, when they are
 created by the template / exist in the cloned container and when the destination
 does not yet exist.
 
-You can suppress the moving of directories with ``--dont-copy-on-create``
-(legacy name that may be changed in future releases). Directories are only
-moved immediately after the container creation phase! If you add ``volumes`` at
-a later time, you must move/create the directories yourself.
+You can suppress the moving of directories with ``--no-move``. Directories
+are only moved immediately after the container creation phase! If you add
+ ``volumes`` at a later time, you must move/create the directories yourself.
 
 Please note that as user and group IDs can differ between the host system and
 inside the container, the bind-mounted directories may appear to be owned by
 different users/groups on the host system.
+
+The name ``volumes`` was initially chosen as the functionality is similar to one
+particular configuration of ``volumes`` in `fig <http://fig.sh>`_. It may be
+changed in future releases.
 
 
 Port Forwarding

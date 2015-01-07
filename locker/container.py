@@ -95,6 +95,9 @@ class Container(lxc.Container):
     def __str__(self):
         return self.name
 
+    def __repr__(self):
+        return 'Container(%s: project=%s, config_path=%s)' % (self, self.project.name, self.get_config_path())
+
     @staticmethod
     def get_containers(project, yml):
         ''' Generate a list of container objects
@@ -110,13 +113,13 @@ class Container(lxc.Container):
         all_containers = list()
         colors = [Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
 
-        for num, name in enumerate(sorted(yml.keys())):
+        for num, name in enumerate(sorted(yml['containers'].keys())):
             pname = '%s_%s' % (project.name, name)
             if pname not in lxc.list_containers():
                 logging.debug('Container does not exist yet or is not accessible: %s', pname)
             color = colors[num % len(colors)] if not project.args.get('no_color', False) else ''
             lxcpath = project.args.get('lxcpath', '/var/lib/lxc')
-            container = Container(pname, yml[name], project, color, lxcpath)
+            container = Container(pname, yml['containers'][name], project, color, lxcpath)
 
             all_containers.append(container)
             if ('containers' in project.args and # required for cleanup command

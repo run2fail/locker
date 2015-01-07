@@ -1,30 +1,20 @@
 About Locker
 ===============
 
-Locker is my take on `Docker <http://www.docker.com>`_  + `fig <http://fig.sh>`_
-applied for `Linux containers (LXC) <https://linuxcontainers.org/>`_. Locker
-wraps the lxc utilities like fig does for Docker.
+Locker is inspired by `fig <http://fig.sh>`_, a simple yet power tool that
+simplifies the management of `Docker <http://www.docker.com>`_  containers.
+Locker wraps the `Linux containers (LXC) <https://linuxcontainers.org/>`_
+utilities using the Python bindings of ``liblxc`` and takes some manual work out
+of the common container management.
+
+With Locker you can define your containers in a descriptive YAML configuration
+file which enables to manage their lifecycle (creation, start, stop, ...) in a
+very easy manner. Locker automatically creates dedicated network bridges for
+each separate project, auto-configures the IP addresses, and container specific
+configuration like the hostnames, cgroup settings, etc. In general, Locker tries
+to be your frontend to LXC so that you do not have to touch the containers'
+configs, fstabs, or dnsmasq files.
 
 Locker is not yet a production ready solution but a prototype implementation.
-Its feature set is mainly focused on my personal application domain. Most
-notably, I required a solution to set up groups of Ubuntu containers with
-bind-mounted folders to store critical data and to make services from the
-containers available to the outside world by port forwarding. I needed a
-complete base installations in the containers to support security auto-updates,
-cron jobs, ssh access, etc. which ruled out pure application containers. Locker
-is a simple Python application that simplifies these tasks.
-
-Please consider that Linux containers do not ship with an installed application
-like Docker containers. Linux containers are usually created based on template
-files that create base installation of your user space of choice. You
-either must
-
-- write your own enhanced lxc template that includes a specific application
-  (this way the template file get somehow similar to a ``Dockerfile``),
-- install your application manually, or
-- deploy your application by using a configuration management system like
-  `puppet <http://puppetlabs.com/puppet/what-is-puppet>`_,
-  `chef <https://www.chef.io/chef/>`_, ...
-
-The latter alternative is what I use as it enables to specify your system's
-state in a declarative language in contrast to some hacked together script.
+Nevertheless, you are invited to test, use, and extend Locker. Please report
+bugs and ask for missing features.

@@ -1,39 +1,45 @@
 type:           map
 matching-rule:  "any"
 mapping:
-    re;(^[a-zA-Z][a-zA-Z\d]*$):
-        type:   map
+    "containers":
+        type:           map
+        matching-rule:  "any"
         mapping:
-            "template":
+            re;(^[a-zA-Z][a-zA-Z\d]*$):
                 type:   map
-                matching-rule:  "any"
                 mapping:
-                    "name":
+                    "template":
+                        type:   map
+                        matching-rule:  "any"
+                        mapping:
+                            "name":
+                                type:       str
+                                required:   true
+                            re;(^.+$):
+                                type:       str
+                    "clone":
                         type:       str
-                        required:   true
-                    re;(^.+$):
+                    "links":
+                        type:       seq
+                        sequence:
+                            - type:     str
+                    "ports":
+                        type:       seq
+                        sequence:
+                            - type:     str
+                    "volumes":
+                        type:       seq
+                        sequence:
+                            - type:     str
+                    "fqdn":
                         type:       str
-            "clone":
-                type:       str
-            "links":
-                type:       seq
-                sequence:
-                    - type:     str
-            "ports":
-                type:       seq
-                sequence:
-                    - type:     str
-            "volumes":
-                type:       seq
-                sequence:
-                    - type:     str
-            "fqdn":
-                type:       str
-            "cgroup":
-                type:       seq
-                sequence:
-                    - type:     str
-            "dns":
-                type:       seq
-                sequence:
-                    - type:     str
+                    "cgroup":
+                        type:       seq
+                        sequence:
+                            - type:     str
+                    "dns":
+                        type:       seq
+                        sequence:
+                            - type:     str
+    #"network":
+    #"defaults":

@@ -15,43 +15,45 @@ class LockerTest(unittest.TestCase):
 
     def init_config(self, containers=[]):
         self.yml = {
-            'ubuntu': {
-                'template': {
-                    'name':    "ubuntu",
-                    'release': "trusty",
-                    'arch':    "amd64",
+            'containers': {
+                'ubuntu': {
+                    'template': {
+                        'name':    "ubuntu",
+                        'release': "trusty",
+                        'arch':    "amd64",
+                    },
+                    "ports": [
+                        "8000:8000",
+                        "8000:8000/udp",
+                        "8001:8001/tcp",
+                        "192.168.2.123:8002:8002",
+                        "192.168.2.123:8003:8003/tcp",
+                        "192.168.2.123:8003:8003/udp",
+                        "invalid",
+                    ],
+                    "fqdn": "test.example.net",
+                    "dns": [
+                        "8.8.8.8",
+                        "$bridge",
+                        "$copy",
+                    ],
+                    "links": [
+                        "sshd:something",
+                    ],
+                    "cgroup": [
+                        "memory.limit_in_bytes=200000000",
+                    ],
+                    "volumes": [
+                        self.tmpdir.name + "/var/log:/var/log/",
+                        self.tmpdir.name + "/foo:/bar",
+                    ],
                 },
-                "ports": [
-                    "8000:8000",
-                    "8000:8000/udp",
-                    "8001:8001/tcp",
-                    "192.168.2.123:8002:8002",
-                    "192.168.2.123:8003:8003/tcp",
-                    "192.168.2.123:8003:8003/udp",
-                    "invalid",
-                ],
-                "fqdn": "test.example.net",
-                "dns": [
-                    "8.8.8.8",
-                    "$bridge",
-                    "$copy",
-                ],
-                "links": [
-                    "sshd:something",
-                ],
-                "cgroup": [
-                    "memory.limit_in_bytes=200000000",
-                ],
-                "volumes": [
-                    self.tmpdir.name + "/var/log:/var/log/",
-                    self.tmpdir.name + "/foo:/bar",
-                ],
-            },
-            'sshd': {
-                'clone': 'test_ubuntu',
-                "links": [
-                    "ubuntu",
-                ],
+                'sshd': {
+                    'clone': 'test_ubuntu',
+                    "links": [
+                        "ubuntu",
+                    ],
+                }
             }
         }
         self.args = {

@@ -179,7 +179,9 @@ class Project(object):
             linked_to = break_and_add_color(container, container.linked_to())
 
             if not self.args.get('extended', False):
-                table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to]])
+                values = [defined, name, fqdn, state, ips, ports, linked_to]
+                row = ['%s%s%s' % (container.color, x, reset_color) for x in values]
+                table.add_row(row)
             else:
                 cpus = container.get_cgroup_item('cpuset.cpus')
                 cpu_shares = container.get_cgroup_item('cpu.shares')
@@ -194,9 +196,11 @@ class Project(object):
                         mem_used = int(int(memf.readline()) / 10**6)
                 except FileNotFoundError:
                     mem_used = 0
-
                 memory = '%s/%s' % (mem_used, mem_limit)
-                table.add_row(['%s%s%s' % (container.color, x, reset_color) for x in [defined, name, fqdn, state, ips, ports, linked_to, cpus, cpu_shares, memory]])
+
+                values = [defined, name, fqdn, state, ips, ports, linked_to, cpus, cpu_shares, memory]
+                row = ['%s%s%s' % (container.color, x, reset_color) for x in values]
+                table.add_row(row)
         sys.stdout.write(table.get_string()+'\n')
 
     @container_list
