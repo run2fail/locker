@@ -1,6 +1,18 @@
 type:           map
 matching-rule:  "any"
 mapping:
+    #"network":
+    "defaults":
+        type:           map
+        mapping:
+            "cgroup":
+                type:       seq
+                sequence:
+                    - type:     str
+            "dns":
+                type:       seq
+                sequence:
+                    - type:     str
     "containers":
         type:           map
         matching-rule:  "any"
@@ -19,6 +31,21 @@ mapping:
                                 type:       str
                     "clone":
                         type:       str
+                    "download":
+                        type:   map
+                        matching-rule:  "any"
+                        mapping:
+                            "dist":
+                                type:       str
+                                required:   true
+                            "release":
+                                type:       str
+                                required:   true
+                            "arch":
+                                type:       str
+                                required:   true
+                            re;(^.+$):
+                                type:       str
                     "links":
                         type:       seq
                         sequence:
@@ -41,5 +68,3 @@ mapping:
                         type:       seq
                         sequence:
                             - type:     str
-    #"network":
-    #"defaults":

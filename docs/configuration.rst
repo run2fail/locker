@@ -28,6 +28,11 @@ Example:
                 arch: "amd64"
         test:
             clone: "some_container"
+        database:
+            download:
+                name: "fedora"
+                release: "20"
+                arch: "i386"
 
 The first level in the YAML configuration contains the ``containers`` sub-tree
 were you find the names (``name``) of all containers in the project.
@@ -40,6 +45,11 @@ critical key-value pairs.
 
 If you specify ``clone`` make sure that the container to clone from already
 exists.
+
+Base images provided by the LXC project can be downloaded with the ``download``
+statement and by specifying the particular key value pairs to select the
+image. All key value pairs in the ``download`` sub-tree are provided as
+arguments to the LXC ``download`` template.
 
 Please note that while the container's ``name`` is ``foo`` in the YAML file,
 the actual name of the container on the system will be of the format
@@ -60,7 +70,7 @@ Example:
 .. code:: yaml
 
     volumes:
-     - "/opt/data/$project_$name/var/log:/var/log"
+        - "/opt/data/$project_$name/var/log:/var/log"
 
 Locker containers may store data outside of the container's root file system,
 e.g., in ``/opt/data`` on the host system. In many use cases you probably want
@@ -101,10 +111,10 @@ Example:
 .. code:: yaml
 
    ports:
-    - "80:80"
-    - "8000:8000/udp"
-    - "8001:8001/tcp"
-    - "192.168.2.123:8003:8003/udp"
+        - "80:80"
+        - "8000:8000/udp"
+        - "8001:8001/tcp"
+        - "192.168.2.123:8003:8003/udp"
 
 Port forwarding can make particular services on the containers available to
 external entities. For example, a container running a web server on tcp port 80
@@ -156,7 +166,7 @@ Example:
 .. code:: yaml
 
     links:
-     - "db:database"
+        - "db:database"
 
 Links will make containers accessible to other containers. ``links`` entries
 will add the specified, i.e., linked container's hostname,
@@ -185,14 +195,21 @@ Example:
 .. code:: yaml
 
     cgroup:
-     - "memory.limit_in_bytes=200000000"
-     - "cpuset.cpus=0,1"
-     - "cpu.shares=512"
+        - "memory.limit_in_bytes=200000000"
+        - "cpuset.cpus=0,1"
+        - "cpu.shares=512"
 
 You can apply ``cgroup`` settings by providing a list of strings where each
 string is of the format ``key=value``. All ``cgroup`` settings are also written
 to the container's ``config`` file and are hence set even when you use
 ``lxc-start`` to start containers later on. Be careful with this feature.
+
+Use ``cgroup`` carefully. Currently Locker cannot ensure the order in which the
+settings are applied / written to the container's ``config`` file.
+
+Control group settings can additionally be configured in the ``defaults``
+section whereas container specific configuration has precendence over the
+defaults.
 
 Nameservers
 -----------
@@ -202,9 +219,9 @@ Example:
 .. code:: yaml
 
     dns:
-    - "8.8.8.8"
-    - "$bridge"
-    - "$copy"
+        - "8.8.8.8"
+        - "$bridge"
+        - "$copy"
 
 Nameservers can be specified via the ``dns`` section. You can specify addresses
 as follows:
@@ -221,6 +238,28 @@ nameserver first.
 Please note that without a valid nameserver you will not be able to resolve
 hostnames from within the container and Internet access may fail for many
 applications.
+
+Nameservers can additionally be configured in the ``defaults`` section whereas
+container specific configuration has precendence over the defaults.
+
+
+Defaults
+--------
+
+Example:
+
+.. code:: yaml
+
+    defaults:
+        dns:
+            - "8.8.8.8"
+        cgroup:
+            - "memory.limit_in_bytes=200000000"
+
+You can specifiy settings for all containers in the ``defaults`` sub-tree.
+Please read the documention of the parameters in the above section to learn if
+the defaults are additive or overwritten by the container specific values.
+
 
 YAML Validation
 ===============

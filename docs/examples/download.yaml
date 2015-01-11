@@ -1,0 +1,13 @@
+containers:
+    ubuntu:
+        download:
+            dist: "ubuntu"
+            release: "trusty"
+            arch: "amd64"
+            server: "images.linuxcontainers.org"
+    fedora:
+        download:
+            dist: "fedora"
+            release: "20"
+            arch: "amd64"
+            server: "images.linuxcontainers.org"

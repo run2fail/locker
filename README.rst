@@ -122,7 +122,8 @@ Locker currently supports the following features:
   - Create, start, stop, and remove groups or selections of containers defined
     in the particular project
   - Show status report of containers in your project
-  - Create containers as clones or based on LXC templates
+  - Create containers as clones, create them based on LXC templates, or download
+    base images provided by the LXC project
 
 - Data storage
 

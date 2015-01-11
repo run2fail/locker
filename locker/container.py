@@ -162,10 +162,21 @@ class Container(lxc.Container):
         - Magic word "$copy": copies the DNS from the container's host system
         - Any valid IP address as string
 
+        Additionally, the default DNS configuration is evaluated and used to
+        derive the container's nameserver configuration. Container specific
+        DNS servers have precedence over the default configuration.
+
         :returns: list of DNS IP addresses (as strings)
         '''
         list_of_dns = list()
-        for dns in self.yml.get('dns', []):
+        try:
+            defaults = self.project.yml['defaults']
+        except KeyError:
+            defaults = {}
+        defaults_dns = defaults.get('dns', [])
+        container_dns = self.yml.get('dns', [])
+        dns_list = container_dns + defaults_dns
+        for dns in list(OrderedDict.fromkeys(dns_list)):
             if dns == "$bridge":
                 list_of_dns.append(self.project.network.gateway)
             elif dns == "$copy":
@@ -197,6 +208,7 @@ class Container(lxc.Container):
             try:
                 with open(rconf_file, 'w') as rconf:
                     for server in dns:
+                        self.logger.debug('Adding nameserver: %s (in %s)', server, rconf_file)
                         rconf.write('nameserver %s\n' % server)
                     rconf.write('\n')
             except Exception as exception:
@@ -213,16 +225,25 @@ class Container(lxc.Container):
         running and always write the new values to the container's config file.
         '''
         self.logger.info('Setting cgroup configuration')
-        if not 'cgroup' in self.yml:
-            return
         regex = re.compile(regex_cgroup)
-        for cgroup in self.yml['cgroup']:
+
+        try:
+            defaults = self.project.yml['defaults']
+        except KeyError:
+            defaults = {}
+        defaults_cgroup = defaults.get('cgroup', [])
+        container_cgroup = self.yml.get('cgroup', [])
+        cgroup_items = dict()
+        for cgroup in defaults_cgroup + container_cgroup: # defaults go first
             match = regex.match(cgroup)
             if not match:
                 self.logger.warning('Malformed cgroup setting: %s', cgroup)
                 continue
             key = match.group(1)
             value = match.group(2)
+            cgroup_items[key] = value # will overwrite defaults
+
+        for key, value in cgroup_items.items():
             if self.running and not self.set_cgroup_item(key, value):
                 self.logger.warning('Was not able to set while running: %s = %s', key, value)
             elif not self.set_config_item('lxc.cgroup.' + key, value):
@@ -394,14 +415,48 @@ class Container(lxc.Container):
                 raise CommandFailed('Cloning failed from: %s' % origin.name)
             self._move_dirs()
 
-        if len([x for x in self.yml if x in ['template', 'clone']]) != 1:
-            self.logger.error('You must provide either \"template\" or \"clone\" in container configuration')
-            raise ValueError('You must provide either \"template\" or \"clone\" in container configuration')
+        def _download(self):
+            ''' Create container by downloading a base image
+
+            The "download" subtree in the YAML configuration will be provided as
+            arguments to the download template.
+            '''
+            try:
+                dist = self.yml['download']['dist']
+            except KeyError:
+                self.logger.error('Missing value for key: %s', 'dist')
+                return
+            try:
+                arch = self.yml['download']['arch']
+            except KeyError:
+                self.logger.error('Missing value for key: %s', 'arch')
+                return
+            try:
+                release = self.yml['download']['release']
+            except KeyError:
+                self.logger.error('Missing value for key: %s', 'release')
+                return
+            self.logger.info('Downloading base image: dist=%s, release=%s, arch=%s', dist, release, arch)
+            flags = lxc.LXC_CREATE_QUIET
+            if self.project.args.get('verbose', False):
+                flags = 0
+            lxc.Container.create(self, 'download', flags, args=self.yml['download'])
+            if not self.defined:
+                self.logger.error('Download of base image failed')
+                self.logger.error('Try again with \"--verbose\" for more information')
+                raise CommandFailed('Download of base image failed')
+            self._move_dirs()
+
+        if len([x for x in self.yml if x in ['template', 'clone', 'download']]) != 1:
+            self.logger.error('You must provide either "template", "clone", or "download" in the container configuration')
+            raise ValueError('You must provide either "template", "clone", or "download" in the container configuration')
 
         if 'template' in self.yml:
             _create_from_template(self)
-        else:
+        elif 'clone' in self.yml:
             _clone_from_existing(self)
+        else:
+            _download(self)
 
     @return_if_not_defined
     def remove(self):
@@ -416,7 +471,7 @@ class Container(lxc.Container):
         self.logger.info('Removing container')
         if not self.project.args.get('force_delete', False):
             # TODO Implement a timeout here?!?
-            input_var = input("Delete %s? [y/N]: " % (self.name.split['_'][1]))
+            input_var = input("Delete %s? [y/N]: " % (self.name.split('_')[1]))
             if input_var not in ['y', 'Y']:
                 self.logger.info('Skipping deletion')
                 return
@@ -576,7 +631,8 @@ class Container(lxc.Container):
         TODO Revvaluate if the fstab file is better than lxc.mount.entry
         '''
         fstab_file = self.get_config_item('lxc.mount')
-        assert len(fstab_file)
+        if not fstab_file:
+            fstab_file = os.path.join(*[self.get_config_path(), self.name, 'fstab'])
         self.logger.debug('Generating fstab: %s', fstab_file)
         with open(fstab_file, 'w+') as fstab:
             if 'volumes' in self.yml:

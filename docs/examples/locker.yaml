@@ -1,38 +1,42 @@
+defaults:
+    dns:
+        - "8.8.8.8"
+        - "$bridge"
+        - "$copy"
+    cgroup:
+        - "memory.limit_in_bytes=200000000"
 containers:
     db:
         template:
             name: "ubuntu"
             release: "precise"
         ports:
-        - "8000:8000"
-        - "8000:8000/udp"
-        - "8001:8001/tcp"
+            - "8000:8000"
+            - "8000:8000/udp"
+            - "8001:8001/tcp"
         volumes:
-        - "/opt/data/db/var_log:/var/log"
-        - "/opt/data/db/etc:/etc"
+            - "/opt/data/db/var_log:/var/log"
+            - "/opt/data/db/etc:/etc"
         fqdn: 'db.example.net'
     web:
         clone: "ubuntu"
         ports:
-        - "192.168.2.123:8002:8002"
-        - "192.168.2.123:8003:8003/tcp"
-        - "192.168.2.123:8003:8003/udp"
+            - "192.168.2.123:8002:8002"
+            - "192.168.2.123:8003:8003/tcp"
+            - "192.168.2.123:8003:8003/udp"
         volumes:
-        - "/opt/data/$project_$name/var_log:/var/log"
+            - "/opt/data/$project_$name/var_log:/var/log"
         links:
-        - "db:database"
-        dns: &default_dns
-        - "8.8.8.8"
-        - "$bridge"
-        - "$copy"
+            - "db:database"
+        dns:
+            - "8.8.4.4"
     foo:
         template:
             name: "ubuntu"
             release: "precise"
         links:
-        - "db"
+            - "db"
         cgroup:
-        - "memory.limit_in_bytes=200000000"
-        - "cpuset.cpus=0,1"
-        - "cpu.shares=512"
-        dns: *default_dns
+            - "memory.limit_in_bytes=400000000"
+            - "cpuset.cpus=0,1"
+            - "cpu.shares=512"
