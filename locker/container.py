@@ -147,7 +147,7 @@ class Container(lxc.Container):
 
         self.set_config_item('lxc.network.0.link', link)
         self.set_config_item('lxc.network.0.veth.pair', veth_pair)
-        self.set_config_item('lxc.network.0.ipv4', ip.split('/')[0])
+        self.set_config_item('lxc.network.0.ipv4', ip)
         self.set_config_item('lxc.network.0.ipv4.gateway', gateway)
 
         self.save_config()
@@ -792,6 +792,20 @@ class Container(lxc.Container):
             hosts_entries.extend([(ip, name, names) for ip in container.get_ips()])
         self._update_etc_hosts(hosts_entries)
         self._update_link_rules(hosts_entries)
+
+    @return_if_not_defined
+    @return_if_not_running
+    def freeze(self):
+        self.logger.info('Freezing')
+        if not lxc.Container.freeze(self):
+            self.logger.warning('Could not freeze')
+
+    @return_if_not_defined
+    @return_if_not_running
+    def unfreeze(self):
+        self.logger.info('Unfreezing')
+        if not lxc.Container.unfreeze(self):
+            self.logger.warning('Could not unfreeze')
 
     @return_if_not_running
     def _add_link_rules(self, entries):

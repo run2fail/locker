@@ -270,11 +270,8 @@ directory:
 
 .. code:: sh
 
-    $ locker -f myconf.yaml --validate docs/schema.yaml status
-
-Due to some legacy issues, you currently must always specify any command to run
-the validation (use ``status`` to avoid side-effects). Further releases may
-introduce a custom ``validate`` command.
+    $ locker -f myconf.yaml validate --schema docs/schema.yaml
 
 Please note that the `pykwalify <https://github.com/Grokzen/pykwalify>`_
-module must be available. It is not specified as requirement in ``setup.py``.
+module must be available (version >= 14.12). It is not specified as requirement
+in ``setup.py`` as this is an optional dependency.

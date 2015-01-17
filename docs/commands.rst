@@ -19,13 +19,13 @@ commands (positional arguments):
     $ locker --help
     usage: locker [-h] [--verbose] [--version] [--file FILE] [--project PROJECT]
               [--no-color] [--validate VALIDATE]
-              {rm,create,start,stop,reboot,status,ports,rmports,links,rmlinks,cgroup,cleanup}
+              {rm,create,start,stop,reboot,status,ports,rmports,links,rmlinks,cgroup,cleanup, freeze,unfreeze,validate}
               ...
 
     Manage LXC containers
 
     positional arguments:
-    {rm,create,start,stop,reboot,status,ports,rmports,links,rmlinks,cgroup,cleanup}
+    {rm,create,start,stop,reboot,status,ports,rmports,links,rmlinks,cgroup,cleanup, freeze,unfreeze,validate}
                             sub-command help
         rm                  Delete container
         create              Create container
@@ -39,6 +39,9 @@ commands (positional arguments):
         rmlinks             Remove links between containers
         cgroup              Set cgroup configuration
         cleanup             Stop containers, remove netfilter rules and bridge
+        freeze              Freeze containers
+        unfreeze            Unfreeze containers
+        validate            Validate YAML configuration file against schema
 
     optional arguments:
     -h, --help            show this help message and exit
@@ -119,6 +122,10 @@ Additional information about the commands:
     (Re-)Apply cgroup settings. Automatically done when starting containers.
 :cleanup:
     Stop all containers and cleanup netfilter rules and bridge
+:freeze:
+    Freeze the container - stops contained processes
+:unfreeze:
+    Unfreeze the container - continues contained processes
 
 Tab Completion
 ==============

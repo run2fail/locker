@@ -31,7 +31,11 @@ Requirements
   - `pykwalify <https://github.com/Grokzen/pykwalify>`_ is optionally required
     if you want to validate your YAML configuration file
 
-- Linux containers userspace tools and libraries
+- Linux containers userspace tools and libraries, version >= ``1.0.7`` (see
+  `Issue 385 <https://github.com/lxc/lxc/issues/385>`_) but note that  ``1.1.0``
+  may also show problems (see
+  `Issue 394 <https://github.com/lxc/lxc/issues/394>`_)
 
 Please note that the offical lxc module is not listed in ``install_requires`` in
-``setup.py`` as the module is not yet available on PyPi.
+``setup.py`` as the module is not yet available on PyPi (see
+`Issue 392 <https://github.com/lxc/lxc/issues/392>`_)

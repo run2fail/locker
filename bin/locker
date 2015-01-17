@@ -71,11 +71,6 @@ def parse_args():
         help='Do not use colored output')
 
     parser.add_argument(
-        '--validate',
-        nargs=1, required=False,
-        help='Validate YAML configuration against the specified schema')
-
-    parser.add_argument(
         '--lxcpath', '-P',
         default='/var/lib/lxc', required=False,
         help='Root path of the containers (default=/var/lib/lxc)')
@@ -149,6 +144,16 @@ def parse_args():
     subparser_rmlinks = subparsers.add_parser('rmlinks', help='Remove links between containers')
     subparser_cgroup = subparsers.add_parser('cgroup', help='Set cgroup configuration')
     subparser_cleanup = subparsers.add_parser('cleanup', help='Stop containers, remove netfilter rules and bridge')
+    subparser_freeze = subparsers.add_parser('freeze', help='Freeze containers')
+    subparser_unfreeze = subparsers.add_parser('unfreeze', help='Unfreeze containers')
+
+    ############################################################################
+
+    subparser_validate = subparsers.add_parser('validate', help='Validate YAML configuration file against schema')
+    subparser_validate.add_argument(
+        '--schema', '-s',
+        nargs=1, required=False,
+        help='Schema file')
 
     ############################################################################
 
@@ -156,7 +161,7 @@ def parse_args():
                 subparser_create, subparser_rm, subparser_status,
                 subparser_port, subparser_rmports,
                 subparser_links, subparser_rmlinks,
-                subparser_cgroup]:
+                subparser_cgroup, subparser_freeze, subparser_unfreeze]:
         sub.add_argument(
             'containers',
             nargs='*', default=[],
@@ -174,27 +179,25 @@ def validate(args):
 
     :param args: Parsed command line parameters
     '''
-    if not args['validate']:
-        return
     try:
         import pykwalify.core
         from pykwalify.errors import SchemaError
     except ImportError:
         logging.warn('Was not able to import pykwalify module. Cannot validate YAML configuration.')
-        sys.exit(1)
+        return 1
+
     try:
-        logging.info('Validating YAML configuration')
+        logging.debug('Validating YAML configuration')
         logging.getLogger('pykwalify').setLevel(logging.WARN)
-        validator = pykwalify.core.Core(args['file'], args['validate'])
+        validator = pykwalify.core.Core(args['file'], args['schema'])
         validator.validate(raise_exception=True)
     except SchemaError as exception:
         logging.error('YAML configuration does not comply to schema: ', exception)
-        sys.exit(1)
+        return 1
+    logging.info('YAML configuration complies to schema')
 
 def main():
-    '''
-    The main function
-    '''
+    ''' The main function '''
     logging.basicConfig(format='%(asctime)s, %(levelname)8s: %(message)s', level=logging.INFO)
     args = parse_args()
     if args['verbose']:
@@ -209,9 +212,10 @@ def main():
         logging.critical('Configuration file \"%s\" does not exist or cannot be accessed', args['file'])
         sys.exit(1)
     with open('%s' % (args['file'])) as yaml_file:
-        validate(args)
         yml = yaml.load(yaml_file)
-    logging.debug('Parsed YAML Configuration: \n%s', pprint.pformat(yml, indent=4))
+        logging.debug('Parsed YAML Configuration: \n%s', pprint.pformat(yml, indent=4))
+    if args['command'] == 'validate':
+        return validate(args)
 
     if not os.geteuid() == 0:
         logging.fatal("Locker must be run as root to modify netfilter rules and as unprivileged containers are not yet supported.")
@@ -242,6 +246,10 @@ def main():
         pro.cgroup()
     elif args['command'] == 'cleanup':
         pro.cleanup()
+    elif args['command'] == 'freeze':
+        pro.freeze()
+    elif args['command'] == 'unfreeze':
+        pro.unfreeze()
     else:
         raise RuntimeError('Invalid command: %s' % args['command'])
 

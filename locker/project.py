@@ -350,6 +350,30 @@ class Project(object):
             except CommandFailed:
                 pass
 
+    @container_list
+    def freeze(self, *, containers=None):
+        ''' Freeze containers
+
+        :param containers: List of containers or None (== all containers)
+        '''
+        for container in containers:
+            try:
+                container.freeze()
+            except CommandFailed:
+                pass
+
+    @container_list
+    def unfreeze(self, *, containers=None):
+        ''' Unfreeze containers
+
+        :param containers: List of containers or None (== all containers)
+        '''
+        for container in containers:
+            try:
+                container.unfreeze()
+            except CommandFailed:
+                pass
+
     def cleanup(self):
         ''' Stop all container, remove bridge and all netfilter rules
 

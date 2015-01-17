@@ -22,10 +22,6 @@ To-Dos / Feature Wish List
   - Setting environment variables in linked containers?! Not required in my use
     cases. Name resolution is more important as the initial configuration of
     applications is realized by a configuration management system.
-  - ``lxc-create`` may use the ``download`` template to download images from the
-    `offical LXC website <http://images.linuxcontainers.org/images/>`_. Maybe
-    this can be used via the Python binding?!? For sure the YAML configuration
-    needs to be extended to support this feature.
   - In general, I am not fully convinced of the YAML file's structure and the
     format of some string attributes, e.g., ``ports`` or ``volumes``. The format
     tries to mimic the particular format of
